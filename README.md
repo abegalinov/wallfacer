@@ -1,6 +1,20 @@
 # Wallfacer
 
-A sandbox Claude Code execution environment. Runs Claude Code headlessly in a Linux dev sandbox with Go, Node.js, and Python pre-installed.
+A Kanban task runner for Claude Code. Create tasks as cards in a web UI, drag them to In Progress to trigger Claude Code execution in a sandbox, and inspect results when done.
+
+## Architecture
+
+```
+Browser (Kanban UI)
+    │
+    ↓
+Go Server (:8080)  ──JSON file──→  data.json
+    │
+    ↓ (os/exec → podman run)
+Sandbox Container (ephemeral) → Claude Code CLI
+```
+
+The Go server runs natively on the host and persists tasks to a local JSON file. It launches ephemeral sandbox containers via `podman run` (or `docker run`).
 
 ## Setup
 
@@ -9,88 +23,86 @@ A sandbox Claude Code execution environment. Runs Claude Code headlessly in a Li
 claude setup-token
 
 # 2. Configure
-cp sandbox/.env.example sandbox/.env
-# Edit sandbox/.env and paste your token
+cp .env.example .env
+# Edit .env and paste your token
 
-# 3. Build
+# 3. Build sandbox image
 make build
+
+# 4. Start the server
+make server
 ```
 
-## Usage
+Open http://localhost:8080 to use the Kanban board.
 
-### Headless mode
+## Task Lifecycle
 
-```bash
-make run PROMPT="fix the failing tests"
+```
+BACKLOG ──drag──→ IN_PROGRESS ──auto──→ DONE
+                      │
+                      ├──auto──→ WAITING ──feedback──→ IN_PROGRESS
+                      │
+                      └──auto──→ FAILED
 ```
 
-### Multiple workspaces
-
-```bash
-make run WORKSPACES="/path/to/repo-a /path/to/repo-b" PROMPT="compare these projects"
-```
-
-Each folder is mounted as `/workspace/<basename>` inside the sandbox.
-
-### Interactive TUI
-
-```bash
-make interactive
-```
-
-### Debug shell
-
-```bash
-make shell
-```
+- Drag a card from Backlog to In Progress to start execution
+- Claude finishes (`end_turn`) → card moves to Done
+- Claude asks a question (empty stop_reason) → card moves to Waiting
+- Submit feedback on a Waiting card → resumes execution
+- `max_tokens` / `pause_turn` → auto-continues in the background
 
 ## Make Targets
 
 | Target | Description |
 |---|---|
 | `make build` | Build the sandbox image |
-| `make run PROMPT="..."` | Run Claude headlessly with a prompt |
-| `make interactive` | Start Claude's interactive TUI |
-| `make shell` | Open a bash shell in the sandbox |
-| `make stop` | Stop the running sandbox |
-| `make clean` | Remove sandbox, volumes, and image |
-
-## What's Inside
-
-- **Ubuntu 24.04** base
-- **Go 1.24** + tools (gopls, dlv, golangci-lint, staticcheck, gosec, goimports, ...)
-- **Node.js 22 LTS**
-- **Python 3** with pip and venv
-- **Claude Code CLI** with `--dangerously-skip-permissions`
-- git, ripgrep, jq, build-essential
+| `make server` | Build and run the Go server natively |
+| `make run PROMPT="…"` | Headless one-shot Claude execution |
+| `make shell` | Open a bash shell in a sandbox container |
+| `make clean` | Remove the sandbox image |
 
 ## Project Structure
 
 ```
 .
 ├── Makefile                  # Top-level convenience targets
+├── main.go               # Config, store init, HTTP routes, server startup
+├── handler.go            # API handlers: tasks CRUD, feedback, events
+├── runner.go             # Container orchestration via os/exec
+├── store.go              # JSON file-backed persistence
+├── ui/
+│   └── index.html        # Kanban board UI
+├── go.mod
+├── go.sum
 ├── sandbox/
 │   ├── Dockerfile            # Ubuntu 24.04 + Go + Node + Python + Claude Code
-│   ├── entrypoint.sh         # git safe.directory fix, launches Claude
-│   ├── docker-compose.yml    # Service definition (optional, for compose users)
-│   ├── .env.example          # Template for environment variables
+│   ├── entrypoint.sh         # Git safe.directory fix, launches Claude
 │   └── .dockerignore
-├── docs/
-│   └── usage.md              # Detailed usage guide
-└── TODO.md                   # Deferred items
+└── traces/            # Execution traces
 ```
 
 ## Configuration
 
-Set these in `sandbox/.env`:
+Set these in `.env`:
 
 | Variable | Description |
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token from `claude setup-token` |
-| `WORKSPACES` | Space-separated list of folders to mount (default: current dir) |
+
+Server environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `ADDR` | `:8080` | Listen address |
+| `DATA_FILE` | `data.json` | Path to JSON persistence file |
+| `CONTAINER_CMD` | `/opt/podman/bin/podman` | Path to container runtime binary |
+| `SANDBOX_IMAGE` | `wallfacer:latest` | Sandbox container image |
+| `ENV_FILE` | (empty) | Path to env file passed to sandbox |
+| `WORKSPACES` | (empty) | Space-separated host paths to mount |
 
 ## Requirements
 
+- [Go](https://go.dev/) 1.25+
 - [Podman](https://podman.io/) (or Docker)
 - Claude Pro or Max subscription (for OAuth token)
 
