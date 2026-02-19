@@ -16,19 +16,28 @@ import (
 	"github.com/google/uuid"
 )
 
+type TaskUsage struct {
+	InputTokens          int     `json:"input_tokens"`
+	OutputTokens         int     `json:"output_tokens"`
+	CacheReadInputTokens int     `json:"cache_read_input_tokens"`
+	CacheCreationTokens  int     `json:"cache_creation_input_tokens"`
+	CostUSD              float64 `json:"cost_usd"`
+}
+
 type Task struct {
-	ID            uuid.UUID `json:"id"`
-	Prompt        string    `json:"prompt"`
-	PromptHistory []string  `json:"prompt_history,omitempty"`
-	Status        string    `json:"status"`
-	SessionID     *string   `json:"session_id"`
-	Result        *string   `json:"result"`
-	StopReason    *string   `json:"stop_reason"`
-	Turns         int       `json:"turns"`
-	Timeout       int       `json:"timeout"`
-	Position      int       `json:"position"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            uuid.UUID  `json:"id"`
+	Prompt        string     `json:"prompt"`
+	PromptHistory []string   `json:"prompt_history,omitempty"`
+	Status        string     `json:"status"`
+	SessionID     *string    `json:"session_id"`
+	Result        *string    `json:"result"`
+	StopReason    *string    `json:"stop_reason"`
+	Turns         int        `json:"turns"`
+	Timeout       int        `json:"timeout"`
+	Usage         TaskUsage  `json:"usage"`
+	Position      int        `json:"position"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 type TaskEvent struct {
@@ -307,6 +316,23 @@ func (s *Store) UpdateTaskResult(_ context.Context, id uuid.UUID, result, sessio
 	t.SessionID = &sessionID
 	t.StopReason = &stopReason
 	t.Turns = turns
+	t.UpdatedAt = time.Now()
+	return s.saveTask(id, t)
+}
+
+func (s *Store) AccumulateTaskUsage(_ context.Context, id uuid.UUID, delta TaskUsage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tasks[id]
+	if !ok {
+		return fmt.Errorf("task not found: %s", id)
+	}
+	t.Usage.InputTokens += delta.InputTokens
+	t.Usage.OutputTokens += delta.OutputTokens
+	t.Usage.CacheReadInputTokens += delta.CacheReadInputTokens
+	t.Usage.CacheCreationTokens += delta.CacheCreationTokens
+	t.Usage.CostUSD += delta.CostUSD
 	t.UpdatedAt = time.Now()
 	return s.saveTask(id, t)
 }

@@ -151,6 +151,18 @@
         <pre id="modal-result" class="bg-slate-900 rounded-lg p-4 text-sm text-slate-300 mb-4"></pre>
       </div>
 
+      <!-- Usage stats -->
+      <div id="modal-usage-section" class="hidden mb-4">
+        <h3 class="text-lg font-semibold text-white mb-2">Usage</h3>
+        <div class="bg-slate-900 rounded-lg p-4 grid grid-cols-2 gap-x-6 gap-y-1 text-sm">
+          <div class="flex justify-between"><span class="text-slate-400">Input tokens</span><span id="modal-usage-input" class="text-slate-200 font-mono"></span></div>
+          <div class="flex justify-between"><span class="text-slate-400">Output tokens</span><span id="modal-usage-output" class="text-slate-200 font-mono"></span></div>
+          <div class="flex justify-between"><span class="text-slate-400">Cache read</span><span id="modal-usage-cache-read" class="text-slate-200 font-mono"></span></div>
+          <div class="flex justify-between"><span class="text-slate-400">Cache creation</span><span id="modal-usage-cache-creation" class="text-slate-200 font-mono"></span></div>
+          <div class="flex justify-between col-span-2 pt-1 border-t border-slate-700 mt-1"><span class="text-slate-400">Cost</span><span id="modal-usage-cost" class="text-slate-200 font-mono"></span></div>
+        </div>
+      </div>
+
       <!-- Live logs for in-progress tasks -->
       <div id="modal-logs-section" class="hidden mb-4">
         <h3 class="text-lg font-semibold text-white mb-2">Live Output</h3>
@@ -456,6 +468,20 @@ async function openModal(id) {
     resultSection.classList.remove('hidden');
   } else {
     resultSection.classList.add('hidden');
+  }
+
+  // Usage stats (show when any tokens have been used)
+  const usageSection = document.getElementById('modal-usage-section');
+  const u = task.usage;
+  if (u && (u.input_tokens || u.output_tokens || u.cost_usd)) {
+    document.getElementById('modal-usage-input').textContent = u.input_tokens.toLocaleString();
+    document.getElementById('modal-usage-output').textContent = u.output_tokens.toLocaleString();
+    document.getElementById('modal-usage-cache-read').textContent = u.cache_read_input_tokens.toLocaleString();
+    document.getElementById('modal-usage-cache-creation').textContent = u.cache_creation_input_tokens.toLocaleString();
+    document.getElementById('modal-usage-cost').textContent = '$' + u.cost_usd.toFixed(4);
+    usageSection.classList.remove('hidden');
+  } else {
+    usageSection.classList.add('hidden');
   }
 
   const logsSection = document.getElementById('modal-logs-section');

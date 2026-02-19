@@ -38,11 +38,20 @@ func NewRunner(store *Store, cfg RunnerConfig) *Runner {
 	}
 }
 
+type claudeUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+}
+
 type claudeOutput struct {
-	Result     string `json:"result"`
-	SessionID  string `json:"session_id"`
-	StopReason string `json:"stop_reason"`
-	IsError    bool   `json:"is_error"`
+	Result       string     `json:"result"`
+	SessionID    string     `json:"session_id"`
+	StopReason   string     `json:"stop_reason"`
+	IsError      bool       `json:"is_error"`
+	TotalCostUSD float64    `json:"total_cost_usd"`
+	Usage        claudeUsage `json:"usage"`
 }
 
 func (r *Runner) Command() string {
@@ -98,6 +107,13 @@ func (r *Runner) Run(taskID uuid.UUID, prompt, sessionID string) {
 			sessionID = output.SessionID
 		}
 		r.store.UpdateTaskResult(bgCtx, taskID, output.Result, sessionID, output.StopReason, turns)
+		r.store.AccumulateTaskUsage(bgCtx, taskID, TaskUsage{
+			InputTokens:          output.Usage.InputTokens,
+			OutputTokens:         output.Usage.OutputTokens,
+			CacheReadInputTokens: output.Usage.CacheReadInputTokens,
+			CacheCreationTokens:  output.Usage.CacheCreationInputTokens,
+			CostUSD:              output.TotalCostUSD,
+		})
 
 		if output.IsError {
 			r.store.UpdateTaskStatus(bgCtx, taskID, "failed")
