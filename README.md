@@ -23,8 +23,9 @@ The Go server runs natively on the host and persists tasks to per-task directori
 claude setup-token
 
 # 2. Configure
-cp .env.example .env
-# Edit .env and paste your token
+mkdir -p ~/.wallfacer
+cp .env.example ~/.wallfacer/.env
+# Edit ~/.wallfacer/.env and paste your token
 
 # 3. Build sandbox image
 make build
@@ -109,7 +110,7 @@ BACKLOG ──drag──→ IN_PROGRESS ──auto──→ DONE
 
 ## Configuration
 
-Set in `.env` (passed to sandbox containers):
+Set in `~/.wallfacer/.env` (passed to sandbox containers):
 
 | Variable | Description |
 |---|---|
@@ -120,10 +121,10 @@ CLI flags (all have env var fallbacks):
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
 | `-addr` | `ADDR` | `:8080` | Listen address |
-| `-data` | `DATA_DIR` | `data` | Data directory |
+| `-data` | `DATA_DIR` | `~/.wallfacer/data` | Data directory |
 | `-container` | `CONTAINER_CMD` | `/opt/podman/bin/podman` | Container runtime |
 | `-image` | `SANDBOX_IMAGE` | `wallfacer:latest` | Sandbox image |
-| `-env` | `ENV_FILE` | `.env` | Env file for container |
+| `-env` | `ENV_FILE` | `~/.wallfacer/.env` | Env file for container |
 | `-no-browser` | — | `false` | Don't open browser |
 
 Positional arguments are workspace directories to mount (defaults to current directory).

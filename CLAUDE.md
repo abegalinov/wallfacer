@@ -104,12 +104,12 @@ CLI flags (with env var fallbacks):
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
 | `-addr` | `ADDR` | `:8080` | Listen address |
-| `-data` | `DATA_DIR` | `data` | Data directory |
+| `-data` | `DATA_DIR` | `~/.wallfacer/data` | Data directory |
 | `-container` | `CONTAINER_CMD` | `/opt/podman/bin/podman` | Container runtime command |
 | `-image` | `SANDBOX_IMAGE` | `wallfacer:latest` | Sandbox container image |
-| `-env` | `ENV_FILE` | `.env` | Env file for container (Claude token) |
+| `-env` | `ENV_FILE` | `~/.wallfacer/.env` | Env file for container (Claude token) |
 | `-no-browser` | — | `false` | Do not open browser on start |
 
 Positional arguments are workspace directories to mount (defaults to cwd).
 
-Sandbox env (in `.env`): `CLAUDE_CODE_OAUTH_TOKEN` (required)
+Sandbox env (in `~/.wallfacer/.env`): `CLAUDE_CODE_OAUTH_TOKEN` (required)
