@@ -22,6 +22,12 @@ func NewHandler(store *Store, runner *Runner) *Handler {
 	return &Handler{store: store, runner: runner}
 }
 
+func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"workspaces": h.runner.Workspaces(),
+	})
+}
+
 func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 	tasks, err := h.store.ListTasks(r.Context())
 	if err != nil {

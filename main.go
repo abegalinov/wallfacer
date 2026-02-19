@@ -109,6 +109,7 @@ func main() {
 	mux.Handle("GET /", http.FileServer(http.FS(uiFS)))
 
 	// API routes
+	mux.HandleFunc("GET /api/config", handler.GetConfig)
 	mux.HandleFunc("GET /api/tasks", handler.ListTasks)
 	mux.HandleFunc("POST /api/tasks", handler.CreateTask)
 

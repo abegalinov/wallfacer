@@ -221,7 +221,10 @@
 
 <!-- Header -->
 <header style="border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;">
-  <h1 style="font-size: 18px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin: 0;">Wallfacer</h1>
+  <div style="display: flex; align-items: center; gap: 16px;">
+    <h1 style="font-size: 18px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin: 0;">Wallfacer</h1>
+    <div id="workspace-list" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+  </div>
   <div style="position: relative;">
     <button id="settings-btn" class="settings-btn" onclick="toggleSettings(event)" title="Settings">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -923,7 +926,23 @@ function initSortable() {
 }
 
 // --- Init ---
+async function fetchConfig() {
+  try {
+    const config = await api('/api/config');
+    const el = document.getElementById('workspace-list');
+    if (config.workspaces && config.workspaces.length > 0) {
+      el.innerHTML = config.workspaces.map(ws => {
+        const name = ws.split('/').filter(Boolean).pop() || ws;
+        return `<span title="${escapeHtml(ws)}" style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border);">${escapeHtml(name)}</span>`;
+      }).join('');
+    }
+  } catch (e) {
+    console.error('fetch config:', e);
+  }
+}
+
 try { initSortable(); } catch (e) { console.error('sortable init:', e); }
+fetchConfig();
 fetchTasks();
 setInterval(fetchTasks, 2000);
 </script>

@@ -58,6 +58,13 @@ func (r *Runner) Command() string {
 	return r.command
 }
 
+func (r *Runner) Workspaces() []string {
+	if r.workspaces == "" {
+		return nil
+	}
+	return strings.Fields(r.workspaces)
+}
+
 func (r *Runner) Run(taskID uuid.UUID, prompt, sessionID string) {
 	bgCtx := context.Background()
 	resumedFromWaiting := sessionID != ""
