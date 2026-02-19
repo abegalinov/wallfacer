@@ -29,7 +29,7 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # --- Go ---
-ARG GO_VERSION=1.24.1
+ARG GO_VERSION=1.25.7
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" \
     | tar -C /usr/local -xzf - && \
