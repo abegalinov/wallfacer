@@ -838,3 +838,17 @@ Both cases retry with `git worktree add --force worktreePath branchName`.
 -...
 
 ---
+
+## Task: 9c62eb85
+
+**Date**: 2026-02-21 01:34:22  
+**Branch**: task/9c62eb85  
+**Commit**: `1cd3437a3805d437ef672b85c5b2a938f9303483`
+
+**Prompt**:
+> "Cancel Task" in the task card detail should be moved to the bottom, above "delete task"
+
+**Result**:
+The "Cancel Task" section has been moved to just above the "Delete task" button at the bottom of the task card detail modal.
+
+---
