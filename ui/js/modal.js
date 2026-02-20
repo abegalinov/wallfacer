@@ -140,7 +140,7 @@ async function openModal(id) {
     modalCard.classList.add('modal-wide');
     modalRight.classList.remove('hidden');
     modalBody.style.display = 'flex';
-    modalBody.style.gap = '24px';
+    modalBody.style.gap = '0';
     const filesEl = document.getElementById('modal-diff-files');
     const behindEl = document.getElementById('modal-diff-behind');
     filesEl.innerHTML = '<span class="text-xs text-v-muted">Loading diff\u2026</span>';
