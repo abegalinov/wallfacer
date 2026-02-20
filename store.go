@@ -54,14 +54,19 @@ type Store struct {
 	tasks   map[uuid.UUID]*Task
 	events  map[uuid.UUID][]TaskEvent
 	nextSeq map[uuid.UUID]int
+
+	subMu       sync.Mutex
+	subscribers map[int]chan struct{}
+	nextSubID   int
 }
 
 func NewStore(dir string) (*Store, error) {
 	s := &Store{
-		dir:     dir,
-		tasks:   make(map[uuid.UUID]*Task),
-		events:  make(map[uuid.UUID][]TaskEvent),
-		nextSeq: make(map[uuid.UUID]int),
+		dir:         dir,
+		tasks:       make(map[uuid.UUID]*Task),
+		events:      make(map[uuid.UUID][]TaskEvent),
+		nextSeq:     make(map[uuid.UUID]int),
+		subscribers: make(map[int]chan struct{}),
 	}
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -151,6 +156,37 @@ func (s *Store) loadAll() error {
 
 func (s *Store) Close() {}
 
+// subscribe registers a channel that receives a signal whenever task state changes.
+// The caller must call unsubscribe with the returned ID when done.
+func (s *Store) subscribe() (int, <-chan struct{}) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	id := s.nextSubID
+	s.nextSubID++
+	ch := make(chan struct{}, 1)
+	s.subscribers[id] = ch
+	return id, ch
+}
+
+func (s *Store) unsubscribe(id int) {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	delete(s.subscribers, id)
+}
+
+// notify wakes all SSE subscribers. Non-blocking: if a subscriber's buffer is
+// already full it already has a pending signal, so no additional send is needed.
+func (s *Store) notify() {
+	s.subMu.Lock()
+	defer s.subMu.Unlock()
+	for _, ch := range s.subscribers {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (s *Store) ListTasks(_ context.Context, includeArchived bool) ([]Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -181,7 +217,11 @@ func (s *Store) SetTaskArchived(_ context.Context, id uuid.UUID, archived bool) 
 	}
 	t.Archived = archived
 	t.UpdatedAt = time.Now()
-	return s.saveTask(id, t)
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 func (s *Store) GetTask(_ context.Context, id uuid.UUID) (*Task, error) {
@@ -239,6 +279,7 @@ func (s *Store) CreateTask(_ context.Context, prompt string, timeout int) (*Task
 	s.tasks[task.ID] = task
 	s.events[task.ID] = nil
 	s.nextSeq[task.ID] = 1
+	s.notify()
 
 	ret := *task
 	return &ret, nil
@@ -254,7 +295,11 @@ func (s *Store) UpdateTaskStatus(_ context.Context, id uuid.UUID, status string)
 	}
 	t.Status = status
 	t.UpdatedAt = time.Now()
-	return s.saveTask(id, t)
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 func (s *Store) UpdateTaskResult(_ context.Context, id uuid.UUID, result, sessionID, stopReason string, turns int) error {
@@ -270,7 +315,11 @@ func (s *Store) UpdateTaskResult(_ context.Context, id uuid.UUID, result, sessio
 	t.StopReason = &stopReason
 	t.Turns = turns
 	t.UpdatedAt = time.Now()
-	return s.saveTask(id, t)
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 func (s *Store) AccumulateTaskUsage(_ context.Context, id uuid.UUID, delta TaskUsage) error {
@@ -287,7 +336,11 @@ func (s *Store) AccumulateTaskUsage(_ context.Context, id uuid.UUID, delta TaskU
 	t.Usage.CacheCreationTokens += delta.CacheCreationTokens
 	t.Usage.CostUSD += delta.CostUSD
 	t.UpdatedAt = time.Now()
-	return s.saveTask(id, t)
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 func (s *Store) UpdateTaskPosition(_ context.Context, id uuid.UUID, position int) error {
@@ -300,7 +353,11 @@ func (s *Store) UpdateTaskPosition(_ context.Context, id uuid.UUID, position int
 	}
 	t.Position = position
 	t.UpdatedAt = time.Now()
-	return s.saveTask(id, t)
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 func (s *Store) UpdateTaskBacklog(_ context.Context, id uuid.UUID, prompt *string, timeout *int) error {
@@ -325,7 +382,11 @@ func (s *Store) UpdateTaskBacklog(_ context.Context, id uuid.UUID, prompt *strin
 		t.Timeout = v
 	}
 	t.UpdatedAt = time.Now()
-	return s.saveTask(id, t)
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 func (s *Store) ResetTaskForRetry(_ context.Context, id uuid.UUID, newPrompt string) error {
@@ -345,7 +406,11 @@ func (s *Store) ResetTaskForRetry(_ context.Context, id uuid.UUID, newPrompt str
 	t.Turns = 0
 	t.Status = "backlog"
 	t.UpdatedAt = time.Now()
-	return s.saveTask(id, t)
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 func (s *Store) ResumeTask(_ context.Context, id uuid.UUID) error {
@@ -359,7 +424,11 @@ func (s *Store) ResumeTask(_ context.Context, id uuid.UUID) error {
 
 	t.Status = "in_progress"
 	t.UpdatedAt = time.Now()
-	return s.saveTask(id, t)
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
 }
 
 // SaveTurnOutput persists raw stdout/stderr for a given turn to the outputs directory.
@@ -400,6 +469,7 @@ func (s *Store) DeleteTask(_ context.Context, id uuid.UUID) error {
 	delete(s.tasks, id)
 	delete(s.events, id)
 	delete(s.nextSeq, id)
+	s.notify()
 	return nil
 }
 

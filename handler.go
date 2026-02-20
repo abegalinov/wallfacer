@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -399,6 +400,57 @@ func (h *Handler) UnarchiveTask(w http.ResponseWriter, r *http.Request, id uuid.
 		"to": "unarchived",
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "unarchived"})
+}
+
+func (h *Handler) StreamTasks(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	includeArchived := r.URL.Query().Get("include_archived") == "true"
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	subID, ch := h.store.subscribe()
+	defer h.store.unsubscribe(subID)
+
+	send := func() bool {
+		tasks, err := h.store.ListTasks(r.Context(), includeArchived)
+		if err != nil {
+			return false
+		}
+		if tasks == nil {
+			tasks = []Task{}
+		}
+		data, err := json.Marshal(tasks)
+		if err != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+
+	if !send() {
+		return
+	}
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ch:
+			if !send() {
+				return
+			}
+		}
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

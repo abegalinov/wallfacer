@@ -139,6 +139,7 @@ func runServer(configDir string, args []string) {
 	mux.HandleFunc("GET /api/git/status", handler.GitStatus)
 	mux.HandleFunc("POST /api/git/push", handler.GitPush)
 	mux.HandleFunc("GET /api/tasks", handler.ListTasks)
+	mux.HandleFunc("GET /api/tasks/stream", handler.StreamTasks)
 	mux.HandleFunc("POST /api/tasks", handler.CreateTask)
 
 	mux.HandleFunc("PATCH /api/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {

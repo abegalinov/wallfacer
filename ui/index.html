@@ -570,20 +570,29 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-async function fetchTasks() {
-  try {
-    const url = showArchived ? '/api/tasks?include_archived=true' : '/api/tasks';
-    tasks = await api(url);
-    render();
-  } catch (e) {
-    console.error('fetch tasks:', e);
-  }
+let tasksSource = null;
+
+function startTasksStream() {
+  if (tasksSource) tasksSource.close();
+  const url = showArchived ? '/api/tasks/stream?include_archived=true' : '/api/tasks/stream';
+  tasksSource = new EventSource(url);
+  tasksSource.onmessage = function(e) {
+    try {
+      tasks = JSON.parse(e.data);
+      render();
+    } catch (err) {
+      console.error('tasks SSE parse error:', err);
+    }
+  };
+  tasksSource.onerror = function() {
+    console.error('tasks SSE connection error');
+  };
 }
 
 function toggleShowArchived() {
   showArchived = document.getElementById('show-archived-toggle').checked;
   localStorage.setItem('wallfacer-show-archived', showArchived ? 'true' : 'false');
-  fetchTasks();
+  startTasksStream();
 }
 
 async function createTask() {
@@ -1236,8 +1245,7 @@ async function pushWorkspace(btn) {
 // --- Init ---
 try { initSortable(); } catch (e) { console.error('sortable init:', e); }
 fetchGitStatus();
-fetchTasks();
-setInterval(fetchTasks, 2000);
+startTasksStream();
 setInterval(fetchGitStatus, 10000);
 </script>
 </body>
