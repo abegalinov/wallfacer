@@ -173,3 +173,25 @@ If you paste the diff here I can pinpoint exactly why `commit_test.go` appears i
 (no result recorded)
 
 ---
+
+## Task: 064cd76e
+
+**Date**: 2026-02-20 23:25:22  
+**Branch**: task/064cd76e  
+**Commit**: `8c9b7f693d44b75795be5e2d2ea28e7555a6007f`
+
+**Prompt**:
+> I want to merge the waiting / failed columns into just one "waiting" column.
+> 
+> The tasks previously are designed to move to failed if failed should be moved to waiting. 
+> 
+> ACs:
+> 1. UI color style should highlight it is a failed waiting.
+> 2. The task card should contain more information why it was failed
+> 3. The live output should include info about sandbox logs/traces
+> 4. The live output should have a final response result similar to the task card in the "done" column
+
+**Result**:
+(no result recorded)
+
+---
