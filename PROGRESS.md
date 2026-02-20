@@ -154,3 +154,22 @@ I can't see any active git diff or repository context. Could you share the diff 
 If you paste the diff here I can pinpoint exactly why `commit_test.go` appears in it.
 
 ---
+
+## Task: 962182c4
+
+**Date**: 2026-02-20 23:15:25  
+**Branch**: task/962182c4  
+**Commit**: `2ad8c83fc7408386b447271194d191c0bacbb7e9`
+
+**Prompt**:
+> When a task card is in waiting, I want to add a capability to cancel and discard all the changes prepared. Move the card to a cancelled column instead of initiating commits and so on.
+> 
+> Things to consider:
+> 
+> 1. update relevant docs.
+> 2. tasks in the backlog or in progress can also be canceled. the sandbox should also be cleaned up. 3. However, history and execution logs/traces remains to be persisted (in case future we want to restore the task back to backlog)
+
+**Result**:
+(no result recorded)
+
+---
