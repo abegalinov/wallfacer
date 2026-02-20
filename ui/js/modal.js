@@ -382,6 +382,8 @@ function renderPrettyLogs(rawBuffer) {
           blocks.push(`<div class="cc-block cc-tool-result"><span class="cc-result-pipe">&#x23BF;</span> <span class="cc-result-empty">(No output)</span></div>`);
           continue;
         }
+        // Clean Read tool output: "   123→\tcode" → "   123  code"
+        text = text.replace(/^(\s*\d+)→\t?/gm, '$1  ');
         const resultLines = text.split('\n');
         if (resultLines.length > 5) {
           const preview = resultLines.slice(0, 3).map(l => escapeHtml(l)).join('\n');
