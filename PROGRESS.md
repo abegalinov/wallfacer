@@ -351,3 +351,28 @@ Two fixes applied:
 **Side-by-side layout** (`modal.js`): Rather than relying solely on the CSS selector `.modal-wide #modal-body { display: flex }` (which could lose to Tailwind CDN's later-injected stylesheet in the cascade), the layout is now also forced directly via `modalBody.style.display = 'flex'` inline style. Inline styles win over any CSS cascade. Cleared in both the `else` branch and `closeModal` so it doesn't bleed into non-wide modal opens.
 
 ---
+
+## Task: 07375600
+
+**Date**: 2026-02-21 00:37:12  
+**Branch**: task/07375600  
+**Commit**: `d08377c48053e54dba445f93586abb713ef53c73`
+
+**Prompt**:
+> the web server always run in 8080 and cannot run multiple ones.
+> 
+> ACs:
+> 
+> - change to find available port to run the server
+> - default to 8080
+
+**Result**:
+The changes are in `main.go:285-307`. Here's what was done:
+
+- Added `"net"` to imports
+- Replaced `http.ListenAndServe` with `net.Listen` + `http.Serve`
+- On bind failure (port in use), logs a warning and retries with port `0` — letting the OS pick the next available port
+- The actual bound port is used for both the log message and the browser URL, so the browser always opens to the correct address
+- Default remains `:8080`; `-addr` flag and `ADDR` env var still work as before
+
+---
