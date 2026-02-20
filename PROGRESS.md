@@ -603,3 +603,158 @@ Builds cleanly.
 **Fix:** Added the same cancelled-status guard to the `default` case (runner.go:322–325) that already existed for the error path (lines 258–263). If the task is already `"cancelled"` when the runner reaches the `default` branch, it exits cleanly without overwriting the state.
 
 ---
+
+## Task: da20034e
+
+**Date**: 2026-02-21 01:19:42  
+**Branch**: task/da20034e  
+**Commit**: `(no commit)`
+
+**Prompt**:
+> some times I see this execution error 
+> 
+> ⏺ Task(Explore the wallfacer codebase at /workspace. I need to understand:
+> 1. How failed tasks work - specifically timeout-rela)
+> ⏺ Read(/workspace/store.go)
+> ⎿
+> File does not exist.
+> ⏺ Read(/workspace/handler.go)
+> ⎿
+> <tool_use_error>Sibling tool call errored</tool_use_error>
+> ⏺ Read(/workspace/runner.go)
+> ⎿
+> <tool_use_error>Sibling tool call errored</tool_use_error>
+> ⏺ Read(/workspace/ui/index.html)
+> ⎿
+> <tool_use_error>Sibling tool call errored</tool_use_error>
+> ⏺ Glob(/workspace/ui/js/**/*.js)
+> ⎿
+> <tool_use_error>Sibling tool call errored</tool_use_error>
+> ⏺ Bash(find /workspace -type f -name "*.go" | head -20)
+> ⎿
+> (No output)
+> ⏺ Bash(ls -la /workspace/)
+> ⎿
+> total 8
+> drwxr-xr-x. 1 claude claude   40 Feb 20 17:11 .
+> dr-xr-xr-x. 1 root   root     68 Feb 20 17:11 ..
+> -rw-r--r--. 1 root   root   7549 Feb 20 16:16 CLAUDE.md
+> drwxr-xr-x. 3 claude claude   96 Feb 20 17:08 wallfacer
+> ⏺ Bash(find /workspace/wallfacer -type f \( -name "*.go" -o -name "*.html" -o -name "*.js" \) | sort)
+> ⎿
+> (No output)
+> ⏺ Bash(ls -la /workspace/wallfacer/)
+> ⎿
+> total 0
+> drwxr-xr-x. 3 claude claude 96 Feb 20 17:08 .
+> drwxr-xr-x. 1 claude claude 40 Feb 20 17:11 ..
+> drwxr-xr-x. 3 claude claude 96 Feb 20 17:08 .git
+> ⏺ Bash(cd /workspace/wallfacer && git ls-files | sort)
+> ⎿
+> fatal: not a git repository (or any parent up to mount point /workspace)
+> Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+> ⏺ Bash(find /workspace -type f | head -50)
+> ⎿
+> /workspace/wallfacer/.git/gk/config
+> /workspace/CLAUDE.md
+> ⏺ Bash(find / -maxdepth 4 -name "store.go" -o -name "handler.go" -o -name "runner.go" 2>/dev/null | grep -v "/proc\|/sys")
+> ⎿
+> (No output)
+> ⏺ Read(/workspace/CLAUDE.md)
+> ⎿
+>      1  # Workspace Instructions
+>      2  
+>      3  This file provides guidance to Claude Code when working on tasks in this workspace.
+> ⏺ Bash(pwd && find /workspace -name "*.go" -o -name "*.html" -o -name "*.js" 2>/dev/null)
+> ⎿
+> /workspace
+> ⎿
+> Based on my exploration, I need to clarify the situation:
+> 
+> ## Summary of Findings
+> ⏺ Bash(find /workspace -type f | head -50 && ls /)
+> ⎿
+> /workspace/wallfacer/.git/gk/config
+> /workspace/CLAUDE.md
+> bin
+> ⏺ Bash(ls /workspace/wallfacer/)
+> ⎿
+> (No output)
+> ⏺ Bash(ls -la /workspace/wallfacer/ && git -C /workspace/wallfacer log --oneline -5 2>/dev/null || true)
+> ⎿
+> total 0
+> drwxr-xr-x. 3 claude claude 96 Feb 20 17:08 .
+> drwxr-xr-x. 1 claude claude 40 Feb 20 17:11 ..
+> drwxr-xr-x. 3 claude claude 96 Feb 20 17:08 .git
+> ⏺ Bash(git -C /workspace/wallfacer log --all --oneline | head -20)
+> ⎿
+> fatal: not a git repository (or any parent up to mount point /workspace)
+> Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+> ⏺ Bash(ls -la /workspace/wallfacer/.git/ && cat /workspace/wallfacer/.git/config)
+> ⎿
+> Exit code 1
+> total 0
+> drwxr-xr-x. 3 claude claude 96 Feb 20 17:08 .
+> ⏺ Bash(find /home -type f -name "*.go" 2>/dev/null | head -20 && find /root -type f -name "*.go" 2>/dev/null | head -20)
+> ⎿
+> (No output)
+> ⏺ Bash(find / -maxdepth 6 -name "handler.go" 2>/dev/null | head -10)
+> ⎿
+> (No output)
+> ⏺ Bash(cat /workspace/wallfacer/.git/gk/config 2>/dev/null || ls /workspace/wallfacer/.git/gk/)
+> ⎿
+> [branch "task/b229eb6a"]
+> 	gk-last-accessed = 2026-02-20T17:08:59.647Z
+> ⏺ Bash(cat /workspace/wallfacer/.git/gk/config)
+> ⎿
+> [branch "task/b229eb6a"]
+> 	gk-last-accessed = 2026-02-20T17:08:59.647Z
+> ⏺ Bash(ls -la /workspace/ && ls -la /workspace/wallfacer/.git/)
+> ⎿
+> total 8
+> drwxr-xr-x. 1 claude claude   40 Feb 20 17:11 .
+> dr-xr-xr-x. 1 root   root     68 Feb 20 17:11 ..
+> ⏺ Bash(mount | grep workspace && df -h /workspace/wallfacer/)
+> ⎿
+> a2a0ee2c717462feb1de2f5afd59de5fd2d8 on /workspace/wallfacer type virtiofs (rw,relatime,context=system_u:object_r:nfs_t:s0)
+> a2a0ee2c717462feb1de2f5afd59de5fd2d8 on /workspace/CLAUDE.md type virtiofs (ro,relatime,context=system_u:object_r:nfs_t:s0)
+> Filesystem                            Size  Used Avail Use% Mounted on
+> a2a0ee2c717462feb1de2f5afd59de5fd2d8  927G  907G   21G  98% /workspace/wallfacer
+> ⏺ Bash(ls -la /workspace/wallfacer/ && stat /workspace/wallfacer/)
+> ⎿
+> total 0
+> drwxr-xr-x. 3 claude claude 96 Feb 20 17:08 .
+> drwxr-xr-x. 1 claude claude 40 Feb 20 17:11 ..
+> ⏺ Bash(find / -maxdepth 8 -name "*.go" 2>/dev/null | grep -v proc | head -20)
+> ⎿
+> /usr/local/go/lib/time/mkzip.go
+> /usr/local/go/misc/cgo/gmp/fib.go
+> /usr/local/go/misc/cgo/gmp/gmp.go
+> ⏺ The git worktree at `/workspace/wallfacer` appears to be empty (mounted virtiofs but no source files). Let me check if there's a way to access the wallfacer source from the running server.
+> 
+> 
+> is there any issue for mounting the repo into workspace
+
+**Result**:
+Now I have a clear picture. The failing task's output reveals the root cause:
+
+```
+a2a0ee2c717462feb1de2f5afd59de5fd2d8 on /workspace/wallfacer type virtiofs (rw,relatime,context=system_u:object_r:nfs_t:s0)
+```
+
+```
+fatal: not a git repository (or any parent up to mount point /workspace)
+Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).
+```
+
+There are two compounding issues:
+
+**1. Git worktrees + container mounts are incompatible**
+
+When `setupWorktrees` creates a task worktree, git places a `.git` **file** (not directory) in the worktree containing:
+```
+gitdir: /absolute/host/path/.git/worktrees/task-branch
+```
+That host-absolute path doesn't exist inside the container. So every `git` command Claude Code runs inside the container fails with "not a git repository". The code already documents this at `runner.go:475-476` and works around it with `hostStageAndCommit` — but Claude Code itself can't use git effectively. The virtiofs mount boundary makes this worse...
+
+---
