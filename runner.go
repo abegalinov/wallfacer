@@ -293,84 +293,64 @@ func (r *Runner) Commit(taskID uuid.UUID, sessionID string) {
 	r.commit(ctx, taskID, sessionID, task.Turns, task.WorktreePaths, task.BranchName)
 }
 
-// workspacePaths returns the container-side paths for mounted workspaces.
-// The container always sees /workspace/<basename> regardless of whether a
-// worktree is mounted underneath.
-func (r *Runner) workspacePaths() []string {
-	var paths []string
-	if r.workspaces == "" {
-		return paths
-	}
-	for _, ws := range strings.Fields(r.workspaces) {
-		ws = strings.TrimSpace(ws)
-		if ws == "" {
+// hostStageAndCommit stages and commits all uncommitted changes in each
+// worktree directly on the host. This replaces the broken container-based
+// approach where the worktree's .git file references host-absolute paths
+// that don't exist inside the container, causing all git commands to fail.
+// Returns true if any new commits were created.
+func (r *Runner) hostStageAndCommit(worktreePaths map[string]string, prompt string) bool {
+	committed := false
+	for repoPath, worktreePath := range worktreePaths {
+		// Stage all changes.
+		if out, err := exec.Command("git", "-C", worktreePath, "add", "-A").CombinedOutput(); err != nil {
+			logRunner.Warn("host commit: git add -A", "repo", repoPath, "error", err, "output", string(out))
 			continue
 		}
-		parts := strings.Split(ws, "/")
-		basename := parts[len(parts)-1]
-		if basename == "" && len(parts) > 1 {
-			basename = parts[len(parts)-2]
+
+		// Check if there are staged changes.
+		out, _ := exec.Command("git", "-C", worktreePath, "status", "--porcelain").Output()
+		if len(strings.TrimSpace(string(out))) == 0 {
+			logRunner.Info("host commit: nothing to commit", "repo", repoPath)
+			continue
 		}
-		paths = append(paths, "/workspace/"+basename)
+
+		// Create commit message from the task prompt.
+		line := prompt
+		if idx := strings.IndexByte(line, '\n'); idx >= 0 {
+			line = line[:idx]
+		}
+		msg := "wallfacer: " + truncate(line, 72)
+		if out, err := exec.Command("git", "-C", worktreePath, "commit", "-m", msg).CombinedOutput(); err != nil {
+			logRunner.Warn("host commit: git commit", "repo", repoPath, "error", err, "output", string(out))
+			continue
+		}
+
+		committed = true
+		logRunner.Info("host commit: committed changes", "repo", repoPath)
 	}
-	return paths
+	return committed
 }
 
-// commit runs Phase 1 (Claude commits in worktree), Phase 2 (host-side
+// commit runs Phase 1 (host-side commit in worktree), Phase 2 (host-side
 // rebase+merge), Phase 3 (PROGRESS.md), Phase 4 (worktree cleanup).
 func (r *Runner) commit(ctx context.Context, taskID uuid.UUID, sessionID string, turns int, worktreePaths map[string]string, branchName string) {
 	bgCtx := context.Background()
 	logRunner.Info("auto-commit", "task", taskID, "session", sessionID)
 
+	// Phase 1: stage and commit all uncommitted changes on the host.
+	// This runs git directly in the worktree (not inside a container) because
+	// worktree .git files reference host-absolute paths that don't exist in
+	// containers — making container-side git commands fail silently.
 	r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
-		"result": "Phase 1/4: Asking Claude to stage and commit changes...",
+		"result": "Phase 1/4: Staging and committing changes...",
 	})
 
-	// Phase 1: ask Claude to stage and commit changes in each worktree.
-	dirs := r.workspacePaths()
-	var prompt string
-	if len(dirs) > 0 {
-		prompt = fmt.Sprintf(
-			"Commit all changes. The workspace repositories are at: %s. "+
-				"For each directory, cd into it, run `git status`, and if there are "+
-				"uncommitted changes, stage them with `git add -A` and create a commit "+
-				"with a descriptive message summarizing the changes. "+
-				"Report what you committed.",
-			strings.Join(dirs, ", "))
-	} else {
-		prompt = "Commit all changes. Check `git status` in each subdirectory " +
-			"of /workspace. If there are uncommitted changes, stage them with `git add -A` " +
-			"and create a commit with a descriptive message summarizing the changes. " +
-			"Report what you committed."
+	task, _ := r.store.GetTask(bgCtx, taskID)
+	taskPrompt := ""
+	if task != nil {
+		taskPrompt = task.Prompt
 	}
-
-	turns++
-	output, rawStdout, rawStderr, err := r.runContainer(ctx, taskID, prompt, sessionID, worktreePaths)
-	if saveErr := r.store.SaveTurnOutput(taskID, turns, rawStdout, rawStderr); saveErr != nil {
-		logRunner.Error("save commit turn output", "task", taskID, "turn", turns, "error", saveErr)
-	}
-	if err != nil {
-		logRunner.Error("commit container error", "task", taskID, "error", err)
-		r.store.InsertEvent(bgCtx, taskID, "error", map[string]string{
-			"error": "commit container failed: " + err.Error(),
-		})
-		// Fall through — still attempt rebase+merge if commits already exist.
-	} else {
-		logRunner.Info("commit result", "task", taskID, "result", truncate(output.Result, 500))
-		r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
-			"result":      output.Result,
-			"stop_reason": output.StopReason,
-			"session_id":  output.SessionID,
-		})
-		r.store.UpdateTaskResult(bgCtx, taskID, output.Result, sessionID, output.StopReason, turns)
-		r.store.AccumulateTaskUsage(bgCtx, taskID, TaskUsage{
-			InputTokens:          output.Usage.InputTokens,
-			OutputTokens:         output.Usage.OutputTokens,
-			CacheReadInputTokens: output.Usage.CacheReadInputTokens,
-			CacheCreationTokens:  output.Usage.CacheCreationInputTokens,
-			CostUSD:              output.TotalCostUSD,
-		})
-	}
+	r.hostStageAndCommit(worktreePaths, taskPrompt)
 
 	// Phase 2: host-side rebase and merge for each git worktree.
 	r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
@@ -396,7 +376,7 @@ func (r *Runner) commit(ctx context.Context, taskID uuid.UUID, sessionID string,
 		}
 	}
 
-	task, _ := r.store.GetTask(bgCtx, taskID)
+	task, _ = r.store.GetTask(bgCtx, taskID)
 	if task != nil {
 		if err := r.writeProgressMD(task, commitHashes); err != nil {
 			logRunner.Warn("write PROGRESS.md", "task", taskID, "error", err)

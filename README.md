@@ -86,17 +86,11 @@ See [Task Lifecycle](docs/task-lifecycle.md) for details on all states and trans
 
 ## Origin Story
 
-It started innocently enough. A developer, keyboard in hand, neurons firing, writing actual code like some kind of 2023 caveman. Line by line. Bracket by bracket. The usual suffering.
+Wallfacer was built in about a week of spare time. The idea came from using Claude Code for everyday coding tasks. After a while, the workflow settled into writing task descriptions, running Claude, reviewing the output, and repeating. The main bottleneck was watching Claude Code's execution and managing all these tasks, so a Kanban board felt like a natural fit for managing that loop.
 
-Then Claude Code arrived. Suddenly the developer was mostly writing *task descriptions* instead of code. The ratio of English words to Go syntax in daily output shifted dramatically. Productivity soared. Understanding of what was actually happening in the codebase plummeted at roughly the same rate. A fair trade.
+The first version was a Go server with a simple web UI. Tasks go into a backlog, get dragged to "in progress" to run Claude Code in a container, and move to "done" when finished. Git worktrees keep each task isolated so multiple can run at the same time without stepping on each other.
 
-The project grew. A Go server. A Kanban board. A sandbox container. A whole little world for running Claude Code tasks. And somewhere around the point where dragging a card from Backlog to In Progress actually worked, a horrifying realization set in:
-
-*The tool was ready to use.*
-
-So the developer opened Wallfacer, created a task card that said "add retry logic to failed tasks," dragged it to In Progress, and watched Claude Code — running inside a Wallfacer sandbox — implement a feature for Wallfacer.
-
-The commits started coming from inside the house.
+At some point Wallfacer was stable enough to develop itself and can create a task card like "add retry logic," drag it to in progress, and let Claude implement the feature inside a Wallfacer sandbox. Most of the later features were built this way.
 
 ## License
 

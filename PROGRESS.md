@@ -65,3 +65,58 @@ There are no git repositories under `/workspace/wallfacer` — none of the direc
 To commit the change to `index.html`, you would need to initialize a git repo first. Would you like me to run `git init` in `/workspace/wallfacer` (or one of its subdirectories) and create the initial commit?
 
 ---
+
+## Bug Fix: Commit Pipeline Broken with Git Worktrees
+
+**Date**: 2026-02-20
+**Files changed**: `runner.go`, `commit_test.go` (new)
+
+### Root Cause
+
+The commit pipeline Phase 1 ran a **container** to ask Claude to stage and
+commit changes. However, the container mounted the git **worktree** directory,
+whose `.git` file contains an absolute host path like:
+
+```
+gitdir: /Users/changkun/.../wallfacer/.git/worktrees/wallfacer
+```
+
+This path does not exist inside the container. All git commands (add, commit,
+status, etc.) fail silently, so Phase 1 creates no commits. Phase 2
+(rebase+merge) then finds no commits ahead of the default branch and skips.
+Result: **nothing gets committed, worktrees are cleaned up, changes are lost.**
+
+Evidence from prior task results (see entries above): Claude's own output said
+"the git worktree's parent `.git` directory doesn't exist in this environment."
+
+### Fix
+
+Replaced Phase 1 (container-based commit via Claude) with **host-side git
+operations** (`git add -A` + `git commit`) in `runner.hostStageAndCommit()`.
+The host has full access to the worktree's git metadata, so the commit succeeds.
+
+The full pipeline is now:
+1. **Phase 1**: Host-side `git add -A && git commit` in each worktree
+2. **Phase 2**: Host-side rebase onto default branch + ff-merge (unchanged)
+3. **Phase 3**: PROGRESS.md update (unchanged)
+4. **Phase 4**: Worktree cleanup (unchanged)
+
+### Prevention
+
+- Added 9 tests in `commit_test.go` covering the full pipeline:
+  - `TestWorktreeSetup` — worktree creation
+  - `TestWorktreeGitFilePointsToHost` — documents the root cause
+  - `TestHostStageAndCommit` / `TestHostStageAndCommitNoChanges` — new method
+  - `TestCommitPipelineBasic` — full pipeline
+  - `TestCommitPipelineDivergedBranch` — rebase when main has advanced
+  - `TestCommitPipelineNoChanges` — no-op when nothing changed
+  - `TestCompleteTaskE2E` — exact waiting→done flow
+  - `TestCommitOnTopOfLatestMain` — commits land on latest main
+
+### Rule: Never run git inside containers on worktree mounts
+
+Git worktrees use a `.git` **file** (not directory) that references the parent
+repo's `.git/worktrees/` by absolute host path. Containers cannot resolve
+these paths. All git operations on worktree data must happen on the **host**.
+
+---
