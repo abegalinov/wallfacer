@@ -885,3 +885,17 @@ Builds cleanly. Here's a summary of the three changes made:
 3....
 
 ---
+
+## Task: 6d1f7f05
+
+**Date**: 2026-02-21 01:40:26  
+**Branch**: task/6d1f7f05  
+**Commit**: `5014b24bf17c4e1a1c23c0e71a740ba9b1a60d60`
+
+**Prompt**:
+> update README to highlight and list core features of this repo
+
+**Result**:
+The README now has a **Features** section between the intro and Prerequisites, listing 11 core capabilities with brief descriptions covering execution model, UI, git isolation, feedback loop, observability, and configuration.
+
+---
