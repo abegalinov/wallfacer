@@ -315,3 +315,21 @@ Root cause: `reinitInstructions()` called `_doReinit()` without the `updateEdito
 Fix: when `_doReinit` succeeds witho...
 
 ---
+
+## Task: 36a0245a
+
+**Date**: 2026-02-21 00:23:32  
+**Branch**: task/36a0245a  
+**Commit**: `18b672218c44edd2e284e9e9861a30c13386a121`
+
+**Prompt**:
+> the UI top left Wallfacer text is too boring. any claude style like fonts and color to be revised?
+
+**Result**:
+The "Wallfacer" title now uses:
+
+- **Instrument Serif italic** — a clean editorial serif with a refined, humanist quality similar to Claude's aesthetic
+- **Warm gradient** — flows from `#d97757` → `#c4623f` → `#a84e2e`, matching the existing `--accent` color palette already in the CSS (so it harmonizes with both light and dark themes)
+- Dropped the blue color, uppercase transform, and wide letter-spacing in favor of a more polished, editorial feel
+
+---
