@@ -24,6 +24,12 @@ WORKSPACES ?= $(CURDIR)
 VOLUME_MOUNTS := $(foreach ws,$(WORKSPACES),-v $(ws):/workspace/$(notdir $(ws)):z)
 
 # Headless one-shot: make run PROMPT="fix the failing tests"
+# Mount host gitconfig read-only; set safe.directory via env so the file stays immutable
+GITCONFIG_MOUNT := -v $(HOME)/.gitconfig:/home/claude/.gitconfig:ro,z \
+	-e "GIT_CONFIG_COUNT=1" \
+	-e "GIT_CONFIG_KEY_0=safe.directory" \
+	-e "GIT_CONFIG_VALUE_0=*"
+
 run:
 ifndef PROMPT
 	$(error PROMPT is required. Usage: make run PROMPT="your task here")
@@ -31,6 +37,7 @@ endif
 	@$(PODMAN) run --rm -it \
 		--name $(NAME) \
 		--env-file .env \
+		$(GITCONFIG_MOUNT) \
 		$(VOLUME_MOUNTS) \
 		-v claude-config:/home/claude/.claude \
 		-w /workspace \
@@ -41,6 +48,7 @@ shell:
 	$(PODMAN) run --rm -it \
 		--name $(NAME)-shell \
 		--env-file .env \
+		$(GITCONFIG_MOUNT) \
 		$(VOLUME_MOUNTS) \
 		-v claude-config:/home/claude/.claude \
 		-w /workspace \
