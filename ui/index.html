@@ -71,11 +71,13 @@
   .badge-backlog { background: #d0d4db; color: #6b7584; }
   .badge-in_progress { background: #cfddf5; color: #2c5b9a; }
   .badge-waiting { background: #f0e6ce; color: #7a5810; }
+  .badge-committing { background: #f0e6ce; color: #7a5810; }
   .badge-done { background: #cceadb; color: #1a6638; }
   .badge-failed { background: #f0d3d3; color: #8c2424; }
   [data-theme="dark"] .badge-backlog { background: #2a3040; color: #7a8899; }
   [data-theme="dark"] .badge-in_progress { background: #1a2d4a; color: #6da0dc; }
   [data-theme="dark"] .badge-waiting { background: #352a10; color: #d4a030; }
+  [data-theme="dark"] .badge-committing { background: #352a10; color: #d4a030; }
   [data-theme="dark"] .badge-done { background: #0e2e1e; color: #45b87a; }
   [data-theme="dark"] .badge-failed { background: #341414; color: #d46868; }
 
@@ -612,11 +614,15 @@ function deleteCurrentTask() {
 
 // --- Rendering ---
 function render() {
-  const columns = { backlog: [], in_progress: [], waiting: [], done: [], failed: [] };
+  const columns = { backlog: [], in_progress: [], waiting: [], committing: [], done: [], failed: [] };
   for (const t of tasks) {
     const col = columns[t.status];
     if (col) col.push(t);
   }
+
+  // Committing tasks show in the Waiting column with a spinner
+  columns.waiting = columns.waiting.concat(columns.committing);
+  delete columns.committing;
 
   // Failed tasks show in the Done column with a different badge
   columns.done = columns.done.concat(columns.failed);
@@ -672,12 +678,13 @@ function formatTimeout(minutes) {
 
 function updateCard(card, t) {
   const badgeClass = `badge-${t.status}`;
-  const statusLabel = t.status === 'in_progress' ? 'in progress' : t.status;
+  const statusLabel = t.status === 'in_progress' ? 'in progress' : t.status === 'committing' ? 'committing' : t.status;
+  const showSpinner = t.status === 'in_progress' || t.status === 'committing';
   card.innerHTML = `
     <div class="flex items-center justify-between mb-1">
       <div class="flex items-center gap-1.5">
         <span class="badge ${badgeClass}">${statusLabel}</span>
-        ${t.status === 'in_progress' ? '<span class="spinner"></span>' : ''}
+        ${showSpinner ? '<span class="spinner"></span>' : ''}
       </div>
       <div class="flex items-center gap-1.5">
         <span class="text-[10px] text-v-muted" title="Timeout">${formatTimeout(t.timeout)}</span>

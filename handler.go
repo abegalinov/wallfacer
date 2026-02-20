@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -219,21 +220,40 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request, id uuid.U
 		return
 	}
 
-	if err := h.store.UpdateTaskStatus(r.Context(), id, "done"); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	h.store.InsertEvent(r.Context(), id, "state_change", map[string]string{
-		"from": "waiting",
-		"to":   "done",
-	})
-
 	if task.SessionID != nil && *task.SessionID != "" {
-		go h.runner.CommitAndPush(id, *task.SessionID)
+		// Transition to "committing" while commit-and-push runs in the background.
+		// The goroutine will move the task to "done" when finished.
+		if err := h.store.UpdateTaskStatus(r.Context(), id, "committing"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		h.store.InsertEvent(r.Context(), id, "state_change", map[string]string{
+			"from": "waiting",
+			"to":   "committing",
+		})
+		sessionID := *task.SessionID
+		go func() {
+			h.runner.CommitAndPush(id, sessionID)
+			bgCtx := context.Background()
+			h.store.UpdateTaskStatus(bgCtx, id, "done")
+			h.store.InsertEvent(bgCtx, id, "state_change", map[string]string{
+				"from": "committing",
+				"to":   "done",
+			})
+		}()
+	} else {
+		// No session to commit — go directly to done.
+		if err := h.store.UpdateTaskStatus(r.Context(), id, "done"); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		h.store.InsertEvent(r.Context(), id, "state_change", map[string]string{
+			"from": "waiting",
+			"to":   "done",
+		})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "completed"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (h *Handler) ResumeTask(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
