@@ -585,3 +585,21 @@ Everything is in place. Here's a summary of the changes made:
 - Added `generateMissingTitles()` — reads the limit selector, calls the API, and displays the result (or an error) in the status area. The button is ...
 
 ---
+
+## Task: 6b89458d
+
+**Date**: 2026-02-21 01:19:11  
+**Branch**: task/6b89458d  
+**Commit**: `58139a85eeb5605743e95d8e1d7c737c50f87241`
+
+**Prompt**:
+> when canceling tasks inprogress, it seems moved to cancelled then immediately moved back to waiting. I'd expect to have it stay in the cancelled column
+
+**Result**:
+Builds cleanly.
+
+**Root cause:** `KillContainer` (line 75) runs `podman kill` synchronously. When it returns, the container dies and `cmd.Run()` inside `runContainer` completes — but with `ctx.Err() == nil` (the context wasn't cancelled, only the container was killed externally). This causes `runContainer` to attempt parsing the partial output, which may succeed with an empty `stop_reason`. The `default` branch in the turn loop then writes `"waiting"` to the store, potentially after or before the cancel handler has already written `"cancelled"`.
+
+**Fix:** Added the same cancelled-status guard to the `default` case (runner.go:322–325) that already existed for the error path (lines 258–263). If the task is already `"cancelled"` when the runner reaches the `default` branch, it exits cleanly without overwriting the state.
+
+---
