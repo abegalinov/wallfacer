@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -239,7 +240,7 @@ func runServer(configDir string, args []string) {
 	}
 
 	logMain.Info("listening", "addr", *addr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
+	if err := http.ListenAndServe(*addr, loggingMiddleware(mux)); err != nil {
 		fatal(logMain, "server", "error", err)
 	}
 }
@@ -338,6 +339,35 @@ func openBrowser(url string) {
 		return
 	}
 	exec.Command(cmd, url).Start()
+}
+
+// statusResponseWriter wraps http.ResponseWriter to capture the HTTP status code
+// written by the handler, so it can be included in access log entries.
+type statusResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusResponseWriter) WriteHeader(code int) {
+	w.status = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+// loggingMiddleware logs each HTTP request with method, path, status, and wall-clock
+// duration. API requests are logged at INFO; static-asset requests at DEBUG so they
+// don't drown out application events during normal browsing.
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		sw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		dur := time.Since(start).Round(time.Millisecond)
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			logHandler.Info(r.Method+" "+r.URL.Path, "status", sw.status, "dur", dur)
+		} else {
+			logHandler.Debug(r.Method+" "+r.URL.Path, "status", sw.status, "dur", dur)
+		}
+	})
 }
 
 func recoverOrphanedTasks(store *Store) {

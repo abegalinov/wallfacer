@@ -194,21 +194,51 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 }
 
 // prettyValue formats a slog.Value for display.
+// UUID-formatted strings are shortened to their first 8 characters.
+// Very long strings are truncated at 200 characters to keep lines readable.
 // String values that contain whitespace, quotes, or '=' are quoted so that
 // multi-word values cannot be mistaken for separate key=value tokens.
 func prettyValue(v slog.Value) string {
+	var s string
 	if v.Kind() == slog.KindString {
-		s := v.String()
-		if needsQuoting(s) {
-			return fmt.Sprintf("%q", s)
-		}
-		return s
+		s = v.String()
+	} else {
+		s = fmt.Sprintf("%v", v.Any())
 	}
-	s := fmt.Sprintf("%v", v.Any())
+	// Shorten UUID-formatted values to first 8 chars for readability.
+	if isUUID(s) {
+		return s[:8]
+	}
+	// Truncate very long values so error messages don't flood the terminal.
+	const maxLen = 200
+	if len(s) > maxLen {
+		s = s[:maxLen] + "…"
+	}
 	if needsQuoting(s) {
 		return fmt.Sprintf("%q", s)
 	}
 	return s
+}
+
+// isUUID reports whether s has the canonical UUID string format
+// (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx, 36 chars).
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, r := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // needsQuoting reports whether s must be wrapped in quotes for visual clarity.
