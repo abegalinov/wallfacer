@@ -1,3 +1,102 @@
+// --- Multi-turn result rendering ---
+
+function detectResultType(text) {
+  if (!text) return 'result';
+  const planPatterns = [
+    /^#{1,3}\s+.*\bplan\b/im,
+    /^#{1,3}\s+.*\bphase\s*\d/im,
+    /^#{1,3}\s+.*\bstep\s*\d/im,
+    /\bimplementation plan\b/i,
+    /^#{1,3}\s+.*\bapproach\b/im,
+    /^#{1,3}\s+.*\bproposal\b/im,
+    /^#{1,3}\s+.*\bdesign\b/im,
+    /^#{1,3}\s+.*\barchitecture\b/im,
+    /^#{1,3}\s+.*\bstrategy\b/im,
+  ];
+  return planPatterns.some(function(p) { return p.test(text); }) ? 'plan' : 'result';
+}
+
+function copyResultEntry(entryId) {
+  const rawEl = document.getElementById(entryId + '-raw');
+  if (!rawEl) return;
+  const text = rawEl.textContent;
+  const btn = event.currentTarget;
+  navigator.clipboard.writeText(text).then(function() {
+    const origHTML = btn.innerHTML;
+    btn.textContent = 'Copied!';
+    setTimeout(function() { btn.innerHTML = origHTML; }, 1500);
+  }).catch(function() {});
+}
+
+function toggleResultEntryRaw(entryId) {
+  const renderedEl = document.getElementById(entryId + '-rendered');
+  const rawEl = document.getElementById(entryId + '-raw');
+  const btn = event.currentTarget;
+  const showingRaw = !rawEl.classList.contains('hidden');
+  if (showingRaw) {
+    renderedEl.classList.remove('hidden');
+    rawEl.classList.add('hidden');
+    btn.textContent = 'Raw';
+  } else {
+    renderedEl.classList.add('hidden');
+    rawEl.classList.remove('hidden');
+    btn.textContent = 'Preview';
+  }
+}
+
+const _copyIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+
+function renderResultsFromEvents(results) {
+  const section = document.getElementById('modal-result-section');
+  const listEl = document.getElementById('modal-results-list');
+  if (!results || results.length === 0) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  const heading = section.querySelector('.section-title');
+  if (heading) heading.textContent = results.length > 1 ? 'Results' : 'Result';
+
+  listEl.innerHTML = results.map(function(result, i) {
+    const isLast = i === results.length - 1;
+    const isPlan = detectResultType(result) === 'plan';
+    const entryId = 'result-entry-' + i;
+
+    const typeBadgeHtml = isPlan
+      ? '<span class="result-type-badge result-type-plan">Plan</span>'
+      : '';
+    const turnLabelHtml = results.length > 1
+      ? '<span class="result-turn-label">Turn ' + (i + 1) + '</span>'
+      : '';
+    const labelsHtml = '<div class="result-entry-labels">' + typeBadgeHtml + turnLabelHtml + '</div>';
+    const btnRowHtml =
+      '<div class="flex items-center gap-1.5">' +
+        '<button onclick="copyResultEntry(\'' + entryId + '\')" class="btn-icon" title="Copy">' +
+          _copyIcon + ' Copy' +
+        '</button>' +
+        '<button onclick="toggleResultEntryRaw(\'' + entryId + '\')" class="btn-icon">Raw</button>' +
+      '</div>';
+    const bodyHtml =
+      '<div id="' + entryId + '-rendered" class="result-entry-body prose-content">' + renderMarkdown(result) + '</div>' +
+      '<pre id="' + entryId + '-raw" class="result-entry-body hidden">' + escapeHtml(result) + '</pre>';
+
+    if (!isLast) {
+      return '<details class="result-entry">' +
+        '<summary class="result-entry-summary">' + labelsHtml + '</summary>' +
+        '<div class="result-entry-actions">' + btnRowHtml + '</div>' +
+        bodyHtml +
+        '</details>';
+    } else {
+      return '<div class="result-entry">' +
+        '<div class="result-entry-header">' + labelsHtml + btnRowHtml + '</div>' +
+        bodyHtml +
+        '</div>';
+    }
+  }).join('');
+
+  section.classList.remove('hidden');
+}
+
 // --- Diff helpers ---
 
 function parseDiffByFile(diff) {
@@ -92,18 +191,11 @@ async function openModal(id) {
     editSection.classList.add('hidden');
   }
 
-  const resultSection = document.getElementById('modal-result-section');
+  // Show task.result as a single-entry fallback; replaced below once events load
   if (task.result) {
-    const resultRaw = document.getElementById('modal-result');
-    const resultRendered = document.getElementById('modal-result-rendered');
-    resultRaw.textContent = task.result;
-    resultRendered.innerHTML = renderMarkdown(task.result);
-    resultRendered.classList.remove('hidden');
-    resultRaw.classList.add('hidden');
-    document.getElementById('toggle-result-btn').textContent = 'Raw';
-    resultSection.classList.remove('hidden');
+    renderResultsFromEvents([task.result]);
   } else {
-    resultSection.classList.add('hidden');
+    document.getElementById('modal-result-section').classList.add('hidden');
   }
 
   // Usage stats (show when any tokens have been used)
@@ -231,6 +323,15 @@ async function openModal(id) {
   // Load events
   try {
     const events = await api(`/api/tasks/${id}/events`);
+
+    // Replace single-result fallback with all turn results from output events
+    const outputResults = events
+      .filter(e => e.event_type === 'output' && e.data && e.data.result)
+      .map(e => e.data.result);
+    if (outputResults.length > 0) {
+      renderResultsFromEvents(outputResults);
+    }
+
     const container = document.getElementById('modal-events');
     container.innerHTML = events.map(e => {
       const time = new Date(e.created_at).toLocaleTimeString();
