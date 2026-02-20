@@ -1,5 +1,19 @@
 // --- Utility helpers ---
 
+function showAlert(message) {
+  document.getElementById('alert-message').textContent = message;
+  const modal = document.getElementById('alert-modal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.getElementById('alert-ok-btn').focus();
+}
+
+function closeAlert() {
+  const modal = document.getElementById('alert-modal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
 function escapeHtml(s) {
   if (!s) return '';
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

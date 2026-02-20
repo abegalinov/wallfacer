@@ -48,7 +48,7 @@ async function pushWorkspace(btn) {
   try {
     await api('/api/git/push', { method: 'POST', body: JSON.stringify({ workspace: ws.path }) });
   } catch (e) {
-    alert('Push failed: ' + e.message);
+    showAlert('Push failed: ' + e.message);
     btn.disabled = false;
     btn.textContent = 'Push';
   }

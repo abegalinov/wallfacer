@@ -7,7 +7,16 @@ document.getElementById('modal').addEventListener('click', (e) => {
 
 // Close modal on Escape key
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Escape') {
+    const alertModal = document.getElementById('alert-modal');
+    if (!alertModal.classList.contains('hidden')) { closeAlert(); return; }
+    closeModal();
+  }
+});
+
+// Close alert modal when clicking the overlay backdrop
+document.getElementById('alert-modal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('alert-modal')) closeAlert();
 });
 
 // New task textarea: Ctrl/Cmd+Enter to save, Escape to cancel

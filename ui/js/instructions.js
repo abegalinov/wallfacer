@@ -86,7 +86,7 @@ async function _doReinit(updateEditor) {
     if (updateEditor && statusEl) {
       statusEl.textContent = 'Error: ' + e.message;
     } else {
-      alert('Re-init failed: ' + e.message);
+      showAlert('Re-init failed: ' + e.message);
     }
   }
 }

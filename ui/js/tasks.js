@@ -15,7 +15,7 @@ async function createTask() {
     hideNewTaskForm();
     fetchTasks();
   } catch (e) {
-    alert('Error creating task: ' + e.message);
+    showAlert('Error creating task: ' + e.message);
   }
 }
 
@@ -43,7 +43,7 @@ async function updateTaskStatus(id, status) {
     await api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) });
     fetchTasks();
   } catch (e) {
-    alert('Error updating task: ' + e.message);
+    showAlert('Error updating task: ' + e.message);
   }
 }
 
@@ -51,7 +51,7 @@ async function toggleFreshStart(id, freshStart) {
   try {
     await api(`/api/tasks/${id}`, { method: 'PATCH', body: JSON.stringify({ fresh_start: freshStart }) });
   } catch (e) {
-    alert('Error updating task: ' + e.message);
+    showAlert('Error updating task: ' + e.message);
   }
 }
 
@@ -62,7 +62,7 @@ async function deleteTask(id) {
     await api(`/api/tasks/${id}`, { method: 'DELETE' });
     fetchTasks();
   } catch (e) {
-    alert('Error deleting task: ' + e.message);
+    showAlert('Error deleting task: ' + e.message);
   }
 }
 
@@ -88,7 +88,7 @@ async function submitFeedback() {
     closeModal();
     fetchTasks();
   } catch (e) {
-    alert('Error submitting feedback: ' + e.message);
+    showAlert('Error submitting feedback: ' + e.message);
   }
 }
 
@@ -99,7 +99,7 @@ async function completeTask() {
     closeModal();
     fetchTasks();
   } catch (e) {
-    alert('Error completing task: ' + e.message);
+    showAlert('Error completing task: ' + e.message);
   }
 }
 
@@ -117,7 +117,7 @@ async function retryTask() {
     closeModal();
     fetchTasks();
   } catch (e) {
-    alert('Error retrying task: ' + e.message);
+    showAlert('Error retrying task: ' + e.message);
   }
 }
 
@@ -128,7 +128,7 @@ async function resumeTask() {
     closeModal();
     fetchTasks();
   } catch (e) {
-    alert('Error resuming task: ' + e.message);
+    showAlert('Error resuming task: ' + e.message);
   }
 }
 
@@ -185,7 +185,7 @@ async function cancelTask() {
     closeModal();
     fetchTasks();
   } catch (e) {
-    alert('Error cancelling task: ' + e.message);
+    showAlert('Error cancelling task: ' + e.message);
   }
 }
 
@@ -198,7 +198,7 @@ async function archiveTask() {
     closeModal();
     fetchTasks();
   } catch (e) {
-    alert('Error archiving task: ' + e.message);
+    showAlert('Error archiving task: ' + e.message);
   }
 }
 
@@ -209,7 +209,7 @@ async function unarchiveTask() {
     closeModal();
     fetchTasks();
   } catch (e) {
-    alert('Error unarchiving task: ' + e.message);
+    showAlert('Error unarchiving task: ' + e.message);
   }
 }
 
@@ -221,6 +221,6 @@ async function syncTask(id) {
     diffCache.delete(id);
     fetchTasks();
   } catch (e) {
-    alert('Error syncing task: ' + e.message);
+    showAlert('Error syncing task: ' + e.message);
   }
 }
