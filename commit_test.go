@@ -766,6 +766,187 @@ func TestParallelTasksConflictingChanges(t *testing.T) {
 	}
 }
 
+// TestSetupWorktreesRecreatesMissingDir reproduces the bug where a waiting
+// task's worktree directory is deleted (e.g. server restart, OS tmpfs cleanup)
+// while the underlying git branch survives. setupWorktrees must recreate the
+// directory by checking out the existing branch rather than failing with
+// "branch already exists".
+func TestSetupWorktreesRecreatesMissingDir(t *testing.T) {
+	repo := setupTestRepo(t)
+	_, runner := setupTestRunner(t, []string{repo})
+
+	taskID := uuid.New()
+
+	// First call: creates the worktree directory and branch.
+	worktreePaths, branchName, err := runner.setupWorktrees(taskID)
+	if err != nil {
+		t.Fatal("initial setupWorktrees:", err)
+	}
+
+	wt := worktreePaths[repo]
+
+	// Simulate Claude making changes and committing in the worktree.
+	if err := os.WriteFile(filepath.Join(wt, "change.txt"), []byte("work in progress\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, wt, "add", ".")
+	gitRun(t, wt, "commit", "-m", "task: add change.txt")
+	commitBefore := gitRun(t, wt, "rev-parse", "HEAD")
+
+	// Simulate the worktree directory being deleted (e.g. server restart).
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal("remove worktree dir:", err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatal("worktree dir should be gone after RemoveAll")
+	}
+
+	// The git branch must still exist in the repo (it lives in .git/refs).
+	branches, _ := gitRunMayFail(repo, "branch", "--list", branchName)
+	if !strings.Contains(branches, branchName) {
+		t.Fatalf("branch %s should still exist in repo even after dir removal", branchName)
+	}
+
+	// Second call with the same taskID: must recreate the directory by
+	// checking out the existing branch (not with -b, which would fail).
+	worktreePaths2, branchName2, err := runner.setupWorktrees(taskID)
+	if err != nil {
+		t.Fatalf("setupWorktrees after dir deletion: %v", err)
+	}
+	t.Cleanup(func() { runner.cleanupWorktrees(taskID, worktreePaths2, branchName2) })
+
+	if branchName2 != branchName {
+		t.Fatalf("branch name changed: want %q, got %q", branchName, branchName2)
+	}
+
+	wt2 := worktreePaths2[repo]
+	if wt2 != wt {
+		t.Fatalf("worktree path changed: want %q, got %q", wt, wt2)
+	}
+
+	// Verify directory was recreated.
+	if info, err := os.Stat(wt2); err != nil || !info.IsDir() {
+		t.Fatal("worktree dir should exist after recreation:", err)
+	}
+
+	// Verify we are on the correct branch.
+	branch := gitRun(t, wt2, "branch", "--show-current")
+	if branch != branchName {
+		t.Fatalf("expected branch %q after recreation, got %q", branchName, branch)
+	}
+
+	// The previous commit must be preserved — we checked out the existing
+	// branch, not a fresh one from HEAD.
+	commitAfter := gitRun(t, wt2, "rev-parse", "HEAD")
+	if commitAfter != commitBefore {
+		t.Fatalf("commit should be preserved: want %q, got %q", commitBefore, commitAfter)
+	}
+
+	// The file committed before the dir was deleted must be visible.
+	if _, err := os.Stat(filepath.Join(wt2, "change.txt")); err != nil {
+		t.Fatal("change.txt should exist in recreated worktree:", err)
+	}
+}
+
+// TestRunDetectsMissingWorktreePaths verifies the runner.go fix: when a task's
+// stored WorktreePaths point to directories that no longer exist on disk,
+// setupWorktrees is called again to recreate them, and the task can proceed.
+// This reproduces: "container exited with code 125: statfs … no such file or
+// directory" that happened on feedback submission after a server restart.
+func TestRunDetectsMissingWorktreePaths(t *testing.T) {
+	repo := setupTestRepo(t)
+	store, runner := setupTestRunner(t, []string{repo})
+
+	ctx := context.Background()
+	task, err := store.CreateTask(ctx, "Test feedback resume", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate task going in_progress: create worktrees and persist paths.
+	worktreePaths, branchName, err := runner.setupWorktrees(task.ID)
+	if err != nil {
+		t.Fatal("initial setupWorktrees:", err)
+	}
+	if err := store.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := worktreePaths[repo]
+
+	// Simulate Claude making progress before going to waiting.
+	if err := os.WriteFile(filepath.Join(wt, "partial.txt"), []byte("partial work\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, wt, "add", ".")
+	gitRun(t, wt, "commit", "-m", "task: partial work")
+	commitOnBranch := gitRun(t, wt, "rev-parse", "HEAD")
+
+	// Task goes to waiting; worktree directory is still on disk at this point.
+	if err := store.UpdateTaskStatus(ctx, task.ID, "waiting"); err != nil {
+		t.Fatal(err)
+	}
+
+	// ---- Server restart simulation ----
+	// The worktree directory disappears but task.json retains WorktreePaths.
+	if err := os.RemoveAll(wt); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reload the task from the store to confirm WorktreePaths is still set.
+	reloaded, err := store.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.WorktreePaths) == 0 {
+		t.Fatal("WorktreePaths should still be persisted in the store")
+	}
+	if _, statErr := os.Stat(reloaded.WorktreePaths[repo]); !os.IsNotExist(statErr) {
+		t.Fatal("worktree directory should be gone from disk")
+	}
+
+	// Replicate the needSetup detection logic from runner.go Run():
+	// if any stored path is missing, call setupWorktrees again.
+	needSetup := false
+	for _, p := range reloaded.WorktreePaths {
+		if _, statErr := os.Stat(p); statErr != nil {
+			needSetup = true
+			break
+		}
+	}
+	if !needSetup {
+		t.Fatal("needSetup should be true when a stored path is missing")
+	}
+
+	// Calling setupWorktrees must succeed and recreate the directory on the
+	// existing branch — this is what the fixed Run() does.
+	newPaths, newBranch, err := runner.setupWorktrees(task.ID)
+	if err != nil {
+		t.Fatalf("setupWorktrees after simulated restart: %v", err)
+	}
+	t.Cleanup(func() { runner.cleanupWorktrees(task.ID, newPaths, newBranch) })
+
+	newWt := newPaths[repo]
+
+	// Verify the recreated worktree is on the correct branch.
+	branch := gitRun(t, newWt, "branch", "--show-current")
+	if branch != branchName {
+		t.Fatalf("expected branch %q, got %q", branchName, branch)
+	}
+
+	// Verify the commit made before the restart is still there.
+	commitAfter := gitRun(t, newWt, "rev-parse", "HEAD")
+	if commitAfter != commitOnBranch {
+		t.Fatalf("commit should be preserved after worktree recreation: want %q, got %q",
+			commitOnBranch, commitAfter)
+	}
+
+	// Verify the file is accessible (the worktree is fully functional).
+	if _, err := os.Stat(filepath.Join(newWt, "partial.txt")); err != nil {
+		t.Fatal("partial.txt should be present in the recreated worktree:", err)
+	}
+}
+
 // TestParallelWorktreeIsolation verifies that file changes in one worktree
 // are invisible in another worktree and in the main repo until merged.
 func TestParallelWorktreeIsolation(t *testing.T) {

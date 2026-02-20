@@ -215,7 +215,21 @@ func (r *Runner) Run(taskID uuid.UUID, prompt, sessionID string, resumedFromWait
 	// waiting→resumed transitions so the same worktree is reused.
 	worktreePaths := task.WorktreePaths
 	branchName := task.BranchName
-	if len(worktreePaths) == 0 {
+	needSetup := len(worktreePaths) == 0
+	if !needSetup {
+		// Verify stored paths still exist on disk. They can disappear if the
+		// server was restarted, the OS cleaned up a tmpfs, or the directories
+		// were deleted externally. If any are missing, re-create them.
+		for _, wt := range worktreePaths {
+			if _, statErr := os.Stat(wt); statErr != nil {
+				logRunner.Warn("stored worktree path missing, will recreate",
+					"task", taskID, "path", wt)
+				needSetup = true
+				break
+			}
+		}
+	}
+	if needSetup {
 		worktreePaths, branchName, err = r.setupWorktrees(taskID)
 		if err != nil {
 			logRunner.Error("setup worktrees", "task", taskID, "error", err)
