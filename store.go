@@ -25,6 +25,7 @@ type TaskUsage struct {
 
 type Task struct {
 	ID            uuid.UUID `json:"id"`
+	Title         string    `json:"title,omitempty"`
 	Prompt        string    `json:"prompt"`
 	PromptHistory []string  `json:"prompt_history,omitempty"`
 	Status        string    `json:"status"`
@@ -300,6 +301,23 @@ func (s *Store) UpdateTaskStatus(_ context.Context, id uuid.UUID, status string)
 		return fmt.Errorf("task not found: %s", id)
 	}
 	t.Status = status
+	t.UpdatedAt = time.Now()
+	if err := s.saveTask(id, t); err != nil {
+		return err
+	}
+	s.notify()
+	return nil
+}
+
+func (s *Store) UpdateTaskTitle(_ context.Context, id uuid.UUID, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tasks[id]
+	if !ok {
+		return fmt.Errorf("task not found: %s", id)
+	}
+	t.Title = title
 	t.UpdatedAt = time.Now()
 	if err := s.saveTask(id, t); err != nil {
 		return err

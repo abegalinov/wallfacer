@@ -513,6 +513,17 @@ pre { white-space: pre-wrap; word-break: break-word; }
   border-top-color: #341414;
 }
 
+/* --- Task title (auto-generated 2-5 word summary) --- */
+.card-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* --- Markdown in card previews (compact overrides) --- */
 .card-prose { }
 .card-prose p { margin: 0 !important; }

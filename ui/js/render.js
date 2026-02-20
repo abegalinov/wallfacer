@@ -167,6 +167,7 @@ function updateCard(card, t) {
       <input type="checkbox" id="resume-chk-${t.id}" ${!t.fresh_start ? 'checked' : ''} onchange="toggleFreshStart('${t.id}', !this.checked)" style="width:11px;height:11px;cursor:pointer;accent-color:var(--accent);">
       <label for="resume-chk-${t.id}" class="text-[10px] text-v-muted" style="cursor:pointer;">Resume previous session</label>
     </div>` : ''}
+    ${t.title ? `<div class="card-title">${escapeHtml(t.title)}</div>` : ''}
     <div class="text-sm card-prose overflow-hidden" style="max-height:4.5em;">${renderMarkdown(t.prompt)}</div>
     ${t.status === 'failed' && t.result ? `
     <div class="card-error-reason">

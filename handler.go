@@ -70,6 +70,8 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		"to": "backlog",
 	})
 
+	go h.runner.GenerateTitle(task.ID, task.Prompt)
+
 	writeJSON(w, http.StatusCreated, task)
 }
 
