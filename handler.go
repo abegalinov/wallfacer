@@ -632,6 +632,23 @@ func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 		}
 		// Show all changes in worktree vs default branch (committed + uncommitted).
 		out, _ := exec.CommandContext(r.Context(), "git", "-C", worktreePath, "diff", defBranch).Output()
+
+		// git diff ignores untracked files, so new directories like .github/
+		// created by Claude but not yet staged won't appear. Enumerate them
+		// and generate a diff for each one via --no-index.
+		if untrackedRaw, err := exec.CommandContext(r.Context(), "git", "-C", worktreePath,
+			"ls-files", "--others", "--exclude-standard").Output(); err == nil {
+			for _, file := range strings.Split(strings.TrimSpace(string(untrackedRaw)), "\n") {
+				if file == "" {
+					continue
+				}
+				// git diff --no-index exits 1 when differences exist; the output is still valid.
+				fd, _ := exec.CommandContext(r.Context(), "git", "-C", worktreePath,
+					"diff", "--no-index", "/dev/null", file).Output()
+				out = append(out, fd...)
+			}
+		}
+
 		if len(out) > 0 {
 			if len(task.WorktreePaths) > 1 {
 				fmt.Fprintf(&combined, "=== %s ===\n", filepath.Base(repoPath))
