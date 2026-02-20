@@ -134,8 +134,8 @@ This handles crashes where cleanup never ran.
 
 ## Git Status API
 
-The server exposes git status for the UI's header bar:
+The server exposes git status for the UI's header bar. See [Orchestration](orchestration.md) for the full API route list.
 
-- `GET /api/git/status` — returns current branch, remote tracking info, and ahead/behind counts for each workspace
-- `GET /api/git/stream` — SSE endpoint that polls git status every few seconds and pushes updates
-- `POST /api/git/push` — runs `git push` on a specified workspace (e.g. after reviewing merged commits)
+- `GET /api/git/status` — current branch, remote tracking, ahead/behind counts per workspace
+- `GET /api/git/stream` — SSE endpoint pushing git status updates
+- `POST /api/git/push` — run `git push` on a workspace

@@ -115,9 +115,7 @@ data/<uuid>/
     └── ...
 ```
 
-Writes are atomic: data is written to a temp file, then `os.Rename`d into place. This makes the store crash-safe without a database or WAL.
-
-On server startup, all `task.json` files are loaded into an in-memory `map[string]*Task` protected by `sync.RWMutex`. The filesystem is the source of truth; memory is rebuilt from it on each boot.
+All writes are atomic (temp file + `os.Rename`). On startup, `task.json` files are loaded into memory. See [Architecture](architecture.md#design-choices) for the persistence design rationale.
 
 ## Crash Recovery
 

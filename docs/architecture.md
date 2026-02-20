@@ -1,8 +1,8 @@
-# Wallfacer Architecture
+# Architecture
 
-Wallfacer is a Kanban task runner that executes Claude Code in isolated sandbox containers. Users create tasks on a web board; dragging a card from Backlog to In Progress triggers autonomous AI execution, git isolation, and auto-merge back to the main branch.
+Wallfacer is a Kanban task runner that executes Claude Code in isolated sandbox containers. Users create tasks on a web board; dragging a card from Backlog to In Progress triggers autonomous AI execution in an isolated git worktree, with auto-merge back to the main branch on completion.
 
-## Overview
+## System Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -22,29 +22,17 @@ Wallfacer is a Kanban task runner that executes Claude Code in isolated sandbox 
 └─────────────────────┘              └───────────────────────┘
 ```
 
+The Go server runs natively on the host and persists tasks to per-task directories. It launches ephemeral sandbox containers via `podman run` (or `docker run`). Each task gets its own git worktree so multiple tasks can run concurrently without interfering.
+
 ## Technology Stack
 
-**Backend**
-- Go 1.25, `stdlib net/http` (no framework)
-- `os/exec` for container orchestration
-- `sync.RWMutex` for in-memory store concurrency
-- `github.com/google/uuid` for task IDs
+**Backend** — Go 1.25, stdlib `net/http` (no framework), `os/exec` for containers, `sync.RWMutex` for concurrency, `github.com/google/uuid` for task IDs.
 
-**Frontend**
-- Vanilla JavaScript (no framework)
-- Tailwind CSS, Sortable.js, Marked.js
-- `EventSource` (SSE) for live updates
-- `localStorage` for theme preferences
+**Frontend** — Vanilla JavaScript, Tailwind CSS, Sortable.js, Marked.js. `EventSource` (SSE) for live updates, `localStorage` for theme preferences.
 
-**Infrastructure**
-- Podman or Docker (container runtime)
-- Ubuntu 24.04 sandbox image with Claude Code CLI installed
-- Git worktrees for per-task isolation
+**Infrastructure** — Podman or Docker as container runtime. Ubuntu 24.04 sandbox image with Claude Code CLI installed. Git worktrees for per-task isolation.
 
-**Persistence**
-- Filesystem only — no database
-- `~/.wallfacer/data/<uuid>/` per task
-- Atomic writes via temp file + `os.Rename`
+**Persistence** — Filesystem only, no database. `~/.wallfacer/data/<uuid>/` per task. Atomic writes via temp file + `os.Rename`.
 
 ## Project Structure
 
@@ -75,10 +63,10 @@ wallfacer/
 │
 ├── Makefile             # build, server, run, shell, clean targets
 ├── go.mod, go.sum
-└── docs/                # This documentation
+└── docs/                # Documentation
 ```
 
-## Key Design Choices
+## Design Choices
 
 | Choice | Rationale |
 |---|---|
@@ -88,6 +76,38 @@ wallfacer/
 | SSE, not WebSocket | Simpler server-side; one-directional push is all the UI needs |
 | Ephemeral containers | No state leaks between tasks; each run starts clean |
 | Event sourcing (traces/) | Full audit trail; enables crash recovery and replay |
+
+## Configuration
+
+### CLI Subcommands
+
+- `wallfacer run [flags] [workspace ...]` — Start the Kanban server
+- `wallfacer env` — Show configuration and env file status
+
+Running `wallfacer` with no arguments prints help.
+
+### Flags for `wallfacer run`
+
+All flags have env var fallbacks:
+
+| Flag | Env Var | Default | Description |
+|------|---------|---------|-------------|
+| `-addr` | `ADDR` | `:8080` | Listen address |
+| `-data` | `DATA_DIR` | `~/.wallfacer/data` | Data directory |
+| `-container` | `CONTAINER_CMD` | `/opt/podman/bin/podman` | Container runtime command |
+| `-image` | `SANDBOX_IMAGE` | `wallfacer:latest` | Sandbox container image |
+| `-env-file` | `ENV_FILE` | `~/.wallfacer/.env` | Env file passed to containers |
+| `-no-browser` | — | `false` | Do not open browser on start |
+
+Positional arguments after flags are workspace directories to mount (defaults to current directory).
+
+### Environment File
+
+`~/.wallfacer/.env` is passed into sandbox containers. Required variable:
+
+| Variable | Description |
+|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token obtained via `claude setup-token` |
 
 ## Server Initialization
 
@@ -103,22 +123,3 @@ parse CLI flags / env vars
 → start listener on :8080
 → open browser (unless -no-browser)
 ```
-
-## Configuration
-
-CLI flags (all have env var fallbacks):
-
-| Flag | Env var | Default |
-|---|---|---|
-| `-addr` | `ADDR` | `:8080` |
-| `-data` | `DATA_DIR` | `~/.wallfacer/data` |
-| `-container` | `CONTAINER_CMD` | `/opt/podman/bin/podman` |
-| `-image` | `SANDBOX_IMAGE` | `wallfacer:latest` |
-| `-env-file` | `ENV_FILE` | `~/.wallfacer/.env` |
-| `-no-browser` | — | `false` |
-
-`~/.wallfacer/.env` must contain `CLAUDE_CODE_OAUTH_TOKEN`.
-
-CLI subcommands:
-- `wallfacer run [flags] [workspace ...]` — start the server
-- `wallfacer env` — check config and token status

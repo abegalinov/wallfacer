@@ -131,13 +131,8 @@ Usage is displayed on task cards and aggregated in the Done column header. It pe
 
 ## Multi-Workspace Support
 
-Wallfacer accepts multiple workspace paths at startup:
+Multiple workspace paths can be passed at startup (see [Architecture — Configuration](architecture.md#configuration)). For each workspace:
 
-```
-wallfacer run ~/projects/myapp ~/projects/mylib
-```
-
-For each workspace:
 - Git status is polled independently and shown in the UI header
 - A separate worktree is created per task per workspace
 - The commit pipeline runs phases 1–3 for each workspace in sequence
