@@ -804,3 +804,37 @@ Now the default is defined in exactly two places — one per language boundary:
 To change the default in the future, update only those two constants.
 
 ---
+
+## Task: c753fe35
+
+**Date**: 2026-02-21 01:31:31  
+**Branch**: task/c753fe35  
+**Commit**: `16560e2209aaa8ed08030d05e3711c0554819c08`
+
+**Prompt**:
+> I see errors like this
+> 
+> container exited with code 125: stderr=Error: statfs /Users/changkun/.wallfacer/worktrees/b229eb6a-615c-4fc6-9a41-93a1f5978672/wallfacer: no such file or directory
+> 
+> when I submit feedback.
+> 
+> Example task ID: b229eb6a-615c-4fc6-9a41-93a1f5978672
+> 
+> pls investigate and fix
+
+**Result**:
+The tests revealed a second wrinkle that the original fix missed: when `os.RemoveAll` deletes the directory, git retains a stale worktree registration in `.git/worktrees/`. The plain `git worktree add branchName path` then fails with "missing but already registered worktree". So `createWorktree` in git.go now catches that error message too and retries with `--force`, which tells git to override the stale registration.
+
+Summary of all changes:
+
+**`git.go`** — `createWorktree` now has a fallback when the initial `-b` add fails due to:
+- `"already exists"` — branch was preserved after the directory was lost  
+- `"already registered worktree"` — git's stale `.git/worktrees/` entry for the deleted dir  
+Both cases retry with `git worktree add --force worktreePath branchName`.
+
+**`runner.go`** — Before using `task.WorktreePaths`, each path is stat-checked. If any is missing, `setupWorktrees` is called to recreate them, just like a first run.
+
+**`commit_test.go`** — Two new tests:
+-...
+
+---
