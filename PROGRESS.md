@@ -899,3 +899,30 @@ Builds cleanly. Here's a summary of the three changes made:
 The README now has a **Features** section between the intro and Prerequisites, listing 11 core capabilities with brief descriptions covering execution model, UI, git isolation, feedback loop, observability, and configuration.
 
 ---
+
+## Task: b229eb6a
+
+**Date**: 2026-02-21 01:45:07  
+**Branch**: task/b229eb6a  
+**Commit**: `b69a193d212e93ddca61a6145fbaf569fb8573a2`
+
+**Prompt**:
+> currently, failed tasks due to timeout can only be moved back to backlog.
+> 
+> 
+> add a resume button to continue execution with extended deadline (same timeout window). also add a selector allow extend with different timeouts similar to backlog task config
+
+**Result**:
+All done. Here's a summary of the changes made:
+
+**`store.go`** — `ResumeTask` now accepts `timeout *int`. If provided, it updates the task's timeout (clamped to 5–1440 min) before transitioning to `in_progress`.
+
+**`handler.go`** — `ResumeTask` parses an optional `{"timeout": N}` JSON body. The body is optional (decode errors are ignored) so existing callers are unaffected. The parsed timeout is forwarded to the store.
+
+**`ui/index.html`** — The resume section now includes a `<select id="modal-resume-timeout">` with the same timeout options as the backlog task config (5 min → 24 hours), placed inline next to the Resume button.
+
+**`ui/js/tasks.js`** — `resumeTask()` reads the selector value and sends `{"timeout": N}` in the POST body to `/api/tasks/{id}/resume`.
+
+**`ui/js/modal.js`** — `openModal()` pre-populates `modal-resume-timeout` with the task's current `timeout` value when the resume section is shown, so the user sees the existing deadline as a sensible default to ...
+
+---
