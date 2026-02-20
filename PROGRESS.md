@@ -946,3 +946,30 @@ Good. The fix adds an early-return guard at the top of `GenerateTitle` (`runner.
 With the guard, whichever goroutine runs second sees `t.Title != ""` and returns immediately without launching a container.
 
 ---
+
+## Task: 4ac08a1c
+
+**Date**: 2026-02-21 01:55:52  
+**Branch**: task/4ac08a1c  
+**Commit**: `fa89d429178aaac4df30915ea443daaaa9f12b2d`
+
+**Prompt**:
+> this task 1f83e24d-1694-4058-a1fc-32c08f23ec76
+> 
+> add changes to the .github folder. but it seems not showing in git diff? when inspect the task card details.
+> 
+> investigate why and fix
+
+**Result**:
+Compiles cleanly. Here's a summary of the root cause and fix:
+
+**Root cause:** `git diff <branch>` only considers files that git is **tracking** — either committed in a branch or staged in the index. When Claude Code writes new files (like `.github/workflows/ci.yml`) using the Write/Edit tools but hasn't run `git add` on them yet, those files are **untracked**. Git silently omits them from `git diff`, so they never appear in the task card's diff view.
+
+**Fix** (`handler.go:636-650`): After the standard tracked-file diff, we now:
+1. Run `git ls-files --others --exclude-standard` to enumerate all untracked files in the worktree (respecting `.gitignore`, so `node_modules/` etc. are still excluded)
+2. For each untracked file, generate a diff with `git diff --no-index /dev/null <file>` — this produces a standard "new file" unified diff patch
+3. Append these patches to the diff output
+
+This covers the full range of changes: committed → staged → unstaged tracked → untracked, all now...
+
+---
