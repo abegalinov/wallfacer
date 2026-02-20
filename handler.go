@@ -339,7 +339,7 @@ func (h *Handler) ResumeTask(w http.ResponseWriter, r *http.Request, id uuid.UUI
 		"to":   "in_progress",
 	})
 
-	go h.runner.Run(id, "", *task.SessionID, false)
+	go h.runner.Run(id, "continue", *task.SessionID, false)
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "resumed"})
 }
