@@ -30,9 +30,9 @@ func initLogger(format string) {
 	opts := &slog.HandlerOptions{Level: slog.LevelDebug}
 	var h slog.Handler
 	if format == "json" {
-		h = slog.NewJSONHandler(os.Stderr, opts)
+		h = slog.NewJSONHandler(os.Stdout, opts)
 	} else {
-		h = newPrettyHandler(os.Stderr, opts)
+		h = newPrettyHandler(os.Stdout, opts)
 	}
 	base := slog.New(h)
 	logMain = base.With("component", "main")
