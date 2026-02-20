@@ -456,3 +456,37 @@ The root cause: `document.querySelector('.modal-card')` was matching the **instr
 The fix scopes both selectors to `#modal .modal-card`, which unambiguously targets the task detail modal card. Now when you open a waiting/failed task with worktrees, the card will expand to `min(96vw, 1600px)` with the 40/60 left/right panel split and the divider between them.
 
 ---
+
+## Task: bc7eb8bf
+
+**Date**: 2026-02-21 00:55:14  
+**Branch**: task/bc7eb8bf  
+**Commit**: `fe975dd9cfd9a7a4680936bdc888a81c0d430316`
+
+**Prompt**:
+> when running multiple wallfacer, it begin to share all session history across different projects. 
+> 
+> I want to make sure the task board isolated per combination of workspace repos.
+> 
+> E.g. Repo A and Repo B.
+> a) When wallfacer runs on A, it should only see the session data for Repo A.
+> 
+> b) when wallfacer runs on A and B, then a)'s session data should be be visible.
+> 
+> c) similarly, when running for B, both from a) and b) should not be visible.
+
+**Result**:
+Builds and vets clean. Here's what the migration does:
+
+**On the next `wallfacer run ~/dev/changkun.de/wallfacer`:**
+
+1. Computes the workspace fingerprint (e.g. `a3b7c91d2e4f5a6b`)
+2. Calls `migrateUnscopedTaskData("~/.wallfacer/data", "~/.wallfacer/data/a3b7c91d2e4f5a6b")`
+3. Scans `~/.wallfacer/data/` for entries with valid UUID names — those are the old task directories
+4. Moves each one into the scoped subdirectory via `os.Rename` (atomic, same filesystem)
+5. Logs how many were migrated
+6. `NewStore` then loads from the now-populated scoped dir as normal
+
+Subsequent starts find nothing left to migrate (UUIDs are gone from `baseDir`), so it's a no-op. The 16-char fingerprint subdirectories that future workspace combinations create are ignored since they don't parse as UUIDs.
+
+---
