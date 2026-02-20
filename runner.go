@@ -928,6 +928,12 @@ func (r *Runner) runContainer(ctx context.Context, taskID uuid.UUID, prompt, ses
 // summarising the task prompt, then persists it via the store. Errors are
 // logged and silently dropped so callers can fire-and-forget.
 func (r *Runner) GenerateTitle(taskID uuid.UUID, prompt string) {
+	// Skip if the task already has a title (e.g. auto-generation on create
+	// and a bulk "Generate Missing" call racing each other).
+	if t, err := r.store.GetTask(context.Background(), taskID); err == nil && t.Title != "" {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
