@@ -323,7 +323,7 @@ func (r *Runner) commit(ctx context.Context, taskID uuid.UUID, sessionID string,
 	logRunner.Info("auto-commit", "task", taskID, "session", sessionID)
 
 	r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
-		"result": "Auto-running commit...",
+		"result": "Phase 1/4: Asking Claude to stage and commit changes...",
 	})
 
 	// Phase 1: ask Claude to stage and commit changes in each worktree.
@@ -373,6 +373,9 @@ func (r *Runner) commit(ctx context.Context, taskID uuid.UUID, sessionID string,
 	}
 
 	// Phase 2: host-side rebase and merge for each git worktree.
+	r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
+		"result": "Phase 2/4: Rebasing and merging into default branch...",
+	})
 	commitHashes, mergeErr := r.rebaseAndMerge(ctx, taskID, worktreePaths, branchName, sessionID)
 	if mergeErr != nil {
 		logRunner.Error("rebase/merge failed", "task", taskID, "error", mergeErr)
@@ -384,6 +387,9 @@ func (r *Runner) commit(ctx context.Context, taskID uuid.UUID, sessionID string,
 	}
 
 	// Phase 3: persist commit hashes and write PROGRESS.md.
+	r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
+		"result": "Phase 3/4: Updating PROGRESS.md...",
+	})
 	if len(commitHashes) > 0 {
 		if err := r.store.UpdateTaskCommitHashes(bgCtx, taskID, commitHashes); err != nil {
 			logRunner.Warn("save commit hashes", "task", taskID, "error", err)
@@ -398,8 +404,14 @@ func (r *Runner) commit(ctx context.Context, taskID uuid.UUID, sessionID string,
 	}
 
 	// Phase 4: remove worktrees now that the branch has been merged.
+	r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
+		"result": "Phase 4/4: Cleaning up worktrees...",
+	})
 	r.cleanupWorktrees(taskID, worktreePaths, branchName)
 
+	r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
+		"result": "Commit pipeline completed.",
+	})
 	logRunner.Info("commit completed", "task", taskID)
 }
 
@@ -430,6 +442,9 @@ func (r *Runner) rebaseAndMerge(
 		}
 		if !ahead {
 			logRunner.Info("no commits to merge, skipping", "task", taskID, "repo", repoPath)
+			r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
+				"result": fmt.Sprintf("Skipping %s — no new commits to merge.", repoPath),
+			})
 			continue
 		}
 
@@ -469,6 +484,9 @@ func (r *Runner) rebaseAndMerge(
 		}
 
 		// Fast-forward merge into default branch.
+		r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
+			"result": fmt.Sprintf("Fast-forward merging %s into %s...", branchName, defBranch),
+		})
 		if err := ffMerge(repoPath, branchName); err != nil {
 			return commitHashes, fmt.Errorf("ff-merge %s: %w", repoPath, err)
 		}
@@ -478,6 +496,9 @@ func (r *Runner) rebaseAndMerge(
 			logRunner.Warn("get commit hash", "task", taskID, "repo", repoPath, "error", err)
 		} else {
 			commitHashes[repoPath] = hash
+			r.store.InsertEvent(bgCtx, taskID, "output", map[string]string{
+				"result": fmt.Sprintf("Merged %s — commit %s", repoPath, hash[:8]),
+			})
 		}
 	}
 

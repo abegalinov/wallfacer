@@ -324,7 +324,7 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request, id uuid.UUI
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if task.Status != "in_progress" {
+	if task.Status != "in_progress" && task.Status != "committing" {
 		// Container is gone (--rm). Serve saved stderr from disk instead.
 		h.serveStoredLogs(w, r, id)
 		return
