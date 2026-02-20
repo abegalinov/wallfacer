@@ -5,7 +5,7 @@ import (
 	"embed"
 	"flag"
 	"fmt"
-	"io/fs"
+	fsLib "io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +20,14 @@ import (
 //go:embed ui
 var uiFiles embed.FS
 
+func printUsage() {
+	fmt.Fprintf(os.Stderr, "Usage: wallfacer <command> [arguments]\n\n")
+	fmt.Fprintf(os.Stderr, "Commands:\n")
+	fmt.Fprintf(os.Stderr, "  run          start the Kanban server\n")
+	fmt.Fprintf(os.Stderr, "  env          show configuration and env file status\n")
+	fmt.Fprintf(os.Stderr, "\nRun 'wallfacer <command> -help' for more information on a command.\n")
+}
+
 func main() {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -27,36 +35,50 @@ func main() {
 	}
 	configDir := filepath.Join(home, ".wallfacer")
 
-	// Handle "wallfacer env" subcommand before flag parsing.
-	if len(os.Args) > 1 && os.Args[1] == "env" {
-		runEnvCheck(configDir)
-		return
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(1)
 	}
 
-	addr := flag.String("addr", envOrDefault("ADDR", ":8080"), "listen address")
-	dataDir := flag.String("data", envOrDefault("DATA_DIR", filepath.Join(configDir, "data")), "data directory")
-	containerCmd := flag.String("container", envOrDefault("CONTAINER_CMD", "/opt/podman/bin/podman"), "container runtime command")
-	sandboxImage := flag.String("image", envOrDefault("SANDBOX_IMAGE", "wallfacer:latest"), "sandbox container image")
-	envFile := flag.String("env-file", envOrDefault("ENV_FILE", filepath.Join(configDir, ".env")), "env file for container (Claude token)")
-	noBrowser := flag.Bool("no-browser", false, "do not open browser on start")
+	switch os.Args[1] {
+	case "env":
+		runEnvCheck(configDir)
+	case "run":
+		runServer(configDir, os.Args[2:])
+	case "-help", "--help", "-h":
+		printUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "wallfacer: unknown command %q\n\n", os.Args[1])
+		printUsage()
+		os.Exit(1)
+	}
+}
 
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: wallfacer [flags] [workspace ...]\n")
-		fmt.Fprintf(os.Stderr, "       wallfacer env\n\n")
-		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  env          show configuration and env file status\n\n")
+func runServer(configDir string, args []string) {
+	fs := flag.NewFlagSet("run", flag.ExitOnError)
+
+	addr := fs.String("addr", envOrDefault("ADDR", ":8080"), "listen address")
+	dataDir := fs.String("data", envOrDefault("DATA_DIR", filepath.Join(configDir, "data")), "data directory")
+	containerCmd := fs.String("container", envOrDefault("CONTAINER_CMD", "/opt/podman/bin/podman"), "container runtime command")
+	sandboxImage := fs.String("image", envOrDefault("SANDBOX_IMAGE", "wallfacer:latest"), "sandbox container image")
+	envFile := fs.String("env-file", envOrDefault("ENV_FILE", filepath.Join(configDir, ".env")), "env file for container (Claude token)")
+	noBrowser := fs.Bool("no-browser", false, "do not open browser on start")
+
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: wallfacer run [flags] [workspace ...]\n\n")
+		fmt.Fprintf(os.Stderr, "Start the Kanban server and open the web UI.\n\n")
 		fmt.Fprintf(os.Stderr, "Positional arguments:\n")
 		fmt.Fprintf(os.Stderr, "  workspace    directories to mount in the sandbox (default: current directory)\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
-		flag.PrintDefaults()
+		fs.PrintDefaults()
 	}
-	flag.Parse()
+	fs.Parse(args)
 
 	// Auto-initialize config directory and .env template.
 	initConfigDir(configDir, *envFile)
 
 	// Positional args are workspace directories.
-	workspaces := flag.Args()
+	workspaces := fs.Args()
 	if len(workspaces) == 0 {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -105,7 +127,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Static files (Kanban UI)
-	uiFS, _ := fs.Sub(uiFiles, "ui")
+	uiFS, _ := fsLib.Sub(uiFiles, "ui")
 	mux.Handle("GET /", http.FileServer(http.FS(uiFS)))
 
 	// API routes
@@ -211,7 +233,7 @@ func runEnvCheck(configDir string) {
 
 	// Check config dir exists.
 	if info, err := os.Stat(configDir); err != nil {
-		fmt.Printf("[!] Config directory does not exist (run wallfacer to auto-create)\n")
+		fmt.Printf("[!] Config directory does not exist (run 'wallfacer run' to auto-create)\n")
 	} else if !info.IsDir() {
 		fmt.Printf("[!] %s is not a directory\n", configDir)
 	} else {
@@ -222,7 +244,7 @@ func runEnvCheck(configDir string) {
 	raw, err := os.ReadFile(envFile)
 	if err != nil {
 		fmt.Printf("[!] Env file not found: %s\n", envFile)
-		fmt.Printf("    Run wallfacer once to auto-create a template, then set your token.\n")
+		fmt.Printf("    Run 'wallfacer run' once to auto-create a template, then set your token.\n")
 		return
 	}
 	fmt.Printf("[ok] Env file exists\n")

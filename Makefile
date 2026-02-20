@@ -15,7 +15,7 @@ build:
 
 # Build and run the Go server natively
 server:
-	go build -o wallfacer . && ./wallfacer
+	go build -o wallfacer . && ./wallfacer run
 
 # Space-separated list of folders to mount under /workspace/<basename>
 WORKSPACES ?= $(CURDIR)
