@@ -513,3 +513,39 @@ The parsing logic already handles NDJSON by iterating lines in reverse and looki
 The root cause: Claude Code's `--output-format=stream-json` requires `--verbose` when using `--print` mode. Adding `--verbose` satisfies that requirement.
 
 ---
+
+## Task: c0c07274
+
+**Date**: 2026-02-21 01:05:52  
+**Branch**: task/c0c07274  
+**Commit**: `db03de5e52351aeb351e448bc5e5e5489d64fd43`
+
+**Prompt**:
+> when click push, I could get errors like this 
+> 
+> Push failed: To ssh://github.com/changkun/blog ! [rejected] main -> main (non-fast-forward) error: failed to push some refs to 'ssh://github.com/changkun/blog' hint: Updates were rejected because the tip of your current branch is behind hint: its remote counterpart. If you want to integrate the remote changes, hint: use 'git pull' before pushing again. hint: See the 'Note about fast-forwards' in 'git push --help' for details.
+> 
+> pls also:
+> 
+> 1. indicate if there are commits from upstream need to be synced.
+> 2. allow rebase sync to upstream
+> 3. if rebase failed or resulted in a conflict, discard the rebase and defer to human to handle
+
+**Result**:
+Here's what was changed:
+
+**`git.go`**
+- Added `BehindCount int` to `WorkspaceGitStatus` — computed via `git rev-list --count HEAD..@{u}` (based on last fetch, no auto-fetch on poll)
+- Added `GitSyncWorkspace` handler (`POST /api/git/sync`): runs `git fetch` then `git rebase @{u}`; on conflict aborts the rebase immediately and returns HTTP 409 with a message telling the user to resolve manually; other errors return HTTP 500
+
+**`main.go`**
+- Registered `POST /api/git/sync` → `handler.GitSyncWorkspace`
+
+**`ui/js/git.js`**
+- Shows a grey `3↓` badge when the workspace is behind upstream
+- Shows a **Sync** button (grey) when behind; clicking it calls `POST /api/git/sync`
+- On conflict error, the alert specifically says "rebase conflict — resolve manually in `<path>`" so the user knows exactly what happened and where
+- On push failure, if the error contains "non-fast-forward" it appends a tip: "Use Sync to rebase onto upstream first"
+- The git SSE stream will naturally refresh `behin...
+
+---
