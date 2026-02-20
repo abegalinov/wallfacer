@@ -74,12 +74,14 @@
   .badge-committing { background: #f0e6ce; color: #7a5810; }
   .badge-done { background: #cceadb; color: #1a6638; }
   .badge-failed { background: #f0d3d3; color: #8c2424; }
+  .badge-archived { background: #d0d4db; color: #6b7584; font-style: italic; }
   [data-theme="dark"] .badge-backlog { background: #2a3040; color: #7a8899; }
   [data-theme="dark"] .badge-in_progress { background: #1a2d4a; color: #6da0dc; }
   [data-theme="dark"] .badge-waiting { background: #352a10; color: #d4a030; }
   [data-theme="dark"] .badge-committing { background: #352a10; color: #d4a030; }
   [data-theme="dark"] .badge-done { background: #0e2e1e; color: #45b87a; }
   [data-theme="dark"] .badge-failed { background: #341414; color: #d46868; }
+  [data-theme="dark"] .badge-archived { background: #2a3040; color: #7a8899; font-style: italic; }
 
   /* --- Spinner --- */
   .spinner {
@@ -243,6 +245,13 @@
         <button data-mode="dark" onclick="setTheme('dark')">Dark</button>
         <button data-mode="auto" onclick="setTheme('auto')">Auto</button>
       </div>
+      <div style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+        <div style="margin-bottom: 8px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Done Column</div>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: var(--text-secondary);">
+          <input type="checkbox" id="show-archived-toggle" onchange="toggleShowArchived()" style="cursor: pointer; accent-color: var(--accent);">
+          Show archived tasks
+        </label>
+      </div>
     </div>
   </div>
 </header>
@@ -257,22 +266,21 @@
     <button id="new-task-btn" onclick="showNewTaskForm()" class="btn-dashed mb-2">+ New Task</button>
     <div id="new-task-form" class="hidden mb-2">
       <textarea id="new-prompt" rows="4" placeholder="Describe your task (Markdown supported)..." class="field"></textarea>
-      <div class="flex items-center gap-2 mt-2">
-        <button onclick="createTask()" class="btn btn-accent">Save</button>
-        <button onclick="hideNewTaskForm()" class="btn-ghost">Cancel</button>
-        <div class="ml-auto flex items-center gap-1.5">
-          <label for="new-timeout" class="text-xs text-v-muted">Timeout</label>
-          <select id="new-timeout" class="select">
-            <option value="5" selected>5 min</option>
-            <option value="15">15 min</option>
-            <option value="30">30 min</option>
-            <option value="60">1 hour</option>
-            <option value="120">2 hours</option>
-            <option value="360">6 hours</option>
-            <option value="720">12 hours</option>
-            <option value="1440">24 hours</option>
-          </select>
+      <div class="flex items-center justify-between mt-2">
+        <div class="flex items-center gap-1">
+          <button onclick="createTask()" class="btn btn-accent">Save</button>
+          <button onclick="hideNewTaskForm()" class="btn-ghost">Cancel</button>
         </div>
+        <select id="new-timeout" class="select" title="Timeout">
+          <option value="5" selected>5 min</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">1 hour</option>
+          <option value="120">2 hours</option>
+          <option value="360">6 hours</option>
+          <option value="720">12 hours</option>
+          <option value="1440">24 hours</option>
+        </select>
       </div>
     </div>
     <div id="col-backlog" class="column col-bg space-y-2" data-status="backlog"></div>
@@ -292,9 +300,12 @@
     <div id="col-waiting" class="column col-bg space-y-2" data-status="waiting"></div>
   </div>
   <div class="flex flex-col min-h-0">
-    <div class="flex items-center gap-2 mb-3 px-1">
-      <h2 class="col-header col-header-done">Done</h2>
-      <span id="count-done" class="text-xs text-v-muted">0</span>
+    <div class="flex flex-col gap-1 mb-3 px-1">
+      <div class="flex items-center gap-2">
+        <h2 class="col-header col-header-done">Done</h2>
+        <span id="count-done" class="text-xs text-v-muted">0</span>
+      </div>
+      <span id="done-stats" class="text-[10px] text-v-muted hidden"></span>
     </div>
     <div id="col-done" class="column col-bg space-y-2" data-status="done"></div>
   </div>
@@ -402,6 +413,20 @@
       <h3 class="section-title">Events</h3>
       <div id="modal-events" class="space-y-2"></div>
 
+      <!-- Archive section (done tasks only, not yet archived) -->
+      <div id="modal-archive-section" class="hidden mb-4">
+        <h3 class="section-title">Archive</h3>
+        <p class="text-sm text-v-secondary mb-2">Hide this task from the Done column. It can be restored from Settings &rarr; Show archived tasks.</p>
+        <button onclick="archiveTask()" class="btn btn-ghost" style="border: 1px solid var(--border);">Archive task</button>
+      </div>
+
+      <!-- Unarchive section (archived done tasks) -->
+      <div id="modal-unarchive-section" class="hidden mb-4">
+        <h3 class="section-title">Archived</h3>
+        <p class="text-sm text-v-secondary mb-2">This task is archived and hidden from the Done column by default.</p>
+        <button onclick="unarchiveTask()" class="btn btn-ghost" style="border: 1px solid var(--border);">Unarchive task</button>
+      </div>
+
       <!-- Delete button -->
       <div class="mt-6 pt-4" style="border-top: 1px solid var(--border);">
         <button onclick="deleteCurrentTask()" class="btn-danger">Delete task</button>
@@ -455,6 +480,7 @@ document.addEventListener('click', function(e) {
 let tasks = [];
 let currentTaskId = null;
 let logsAbort = null;
+let showArchived = localStorage.getItem('wallfacer-show-archived') === 'true';
 
 // --- API ---
 async function api(path, opts = {}) {
@@ -472,11 +498,18 @@ async function api(path, opts = {}) {
 
 async function fetchTasks() {
   try {
-    tasks = await api('/api/tasks');
+    const url = showArchived ? '/api/tasks?include_archived=true' : '/api/tasks';
+    tasks = await api(url);
     render();
   } catch (e) {
     console.error('fetch tasks:', e);
   }
+}
+
+function toggleShowArchived() {
+  showArchived = document.getElementById('show-archived-toggle').checked;
+  localStorage.setItem('wallfacer-show-archived', showArchived ? 'true' : 'false');
+  fetchTasks();
 }
 
 async function createTask() {
@@ -661,6 +694,21 @@ function render() {
       } else {
         updateCard(card, t);
       }
+    }
+  }
+
+  // Update done column usage stats
+  const doneStatsEl = document.getElementById('done-stats');
+  if (doneStatsEl) {
+    const doneItems = columns.done || [];
+    const totalInput = doneItems.reduce(function(s, t) { return s + (t.usage && t.usage.input_tokens || 0); }, 0);
+    const totalOutput = doneItems.reduce(function(s, t) { return s + (t.usage && t.usage.output_tokens || 0); }, 0);
+    const totalCost = doneItems.reduce(function(s, t) { return s + (t.usage && t.usage.cost_usd || 0); }, 0);
+    if (totalInput || totalOutput || totalCost) {
+      doneStatsEl.textContent = totalInput.toLocaleString() + ' in / ' + totalOutput.toLocaleString() + ' out / $' + totalCost.toFixed(4);
+      doneStatsEl.classList.remove('hidden');
+    } else {
+      doneStatsEl.classList.add('hidden');
     }
   }
 }

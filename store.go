@@ -29,6 +29,7 @@ type Task struct {
 	Prompt        string    `json:"prompt"`
 	PromptHistory []string  `json:"prompt_history,omitempty"`
 	Status        string    `json:"status"`
+	Archived      bool      `json:"archived,omitempty"`
 	SessionID     *string   `json:"session_id"`
 	Result        *string   `json:"result"`
 	StopReason    *string   `json:"stop_reason"`
@@ -151,12 +152,15 @@ func (s *Store) loadAll() error {
 
 func (s *Store) Close() {}
 
-func (s *Store) ListTasks(_ context.Context) ([]Task, error) {
+func (s *Store) ListTasks(_ context.Context, includeArchived bool) ([]Task, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	tasks := make([]Task, 0, len(s.tasks))
 	for _, t := range s.tasks {
+		if !includeArchived && t.Archived {
+			continue
+		}
 		tasks = append(tasks, *t)
 	}
 	sort.Slice(tasks, func(i, j int) bool {
@@ -166,6 +170,19 @@ func (s *Store) ListTasks(_ context.Context) ([]Task, error) {
 		return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
 	})
 	return tasks, nil
+}
+
+func (s *Store) SetTaskArchived(_ context.Context, id uuid.UUID, archived bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, ok := s.tasks[id]
+	if !ok {
+		return fmt.Errorf("task not found: %s", id)
+	}
+	t.Archived = archived
+	t.UpdatedAt = time.Now()
+	return s.saveTask(id, t)
 }
 
 func (s *Store) GetTask(_ context.Context, id uuid.UUID) (*Task, error) {

@@ -191,6 +191,24 @@ func runServer(configDir string, args []string) {
 		handler.ResumeTask(w, r, id)
 	})
 
+	mux.HandleFunc("POST /api/tasks/{id}/archive", func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, "invalid task id", http.StatusBadRequest)
+			return
+		}
+		handler.ArchiveTask(w, r, id)
+	})
+
+	mux.HandleFunc("POST /api/tasks/{id}/unarchive", func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, "invalid task id", http.StatusBadRequest)
+			return
+		}
+		handler.UnarchiveTask(w, r, id)
+	})
+
 	mux.HandleFunc("GET /api/tasks/{id}/outputs/{filename}", func(w http.ResponseWriter, r *http.Request) {
 		id, err := uuid.Parse(r.PathValue("id"))
 		if err != nil {

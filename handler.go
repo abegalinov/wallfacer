@@ -30,7 +30,8 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := h.store.ListTasks(r.Context())
+	includeArchived := r.URL.Query().Get("include_archived") == "true"
+	tasks, err := h.store.ListTasks(r.Context(), includeArchived)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -355,6 +356,41 @@ func (h *Handler) StreamLogs(w http.ResponseWriter, r *http.Request, id uuid.UUI
 	}
 
 	cmd.Wait()
+}
+
+func (h *Handler) ArchiveTask(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	task, err := h.store.GetTask(r.Context(), id)
+	if err != nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+	if task.Status != "done" {
+		http.Error(w, "only done tasks can be archived", http.StatusBadRequest)
+		return
+	}
+	if err := h.store.SetTaskArchived(r.Context(), id, true); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.store.InsertEvent(r.Context(), id, "state_change", map[string]string{
+		"to": "archived",
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "archived"})
+}
+
+func (h *Handler) UnarchiveTask(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	if _, err := h.store.GetTask(r.Context(), id); err != nil {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+	if err := h.store.SetTaskArchived(r.Context(), id, false); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.store.InsertEvent(r.Context(), id, "state_change", map[string]string{
+		"to": "unarchived",
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "unarchived"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
