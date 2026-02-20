@@ -119,12 +119,20 @@ func runServer(configDir string, args []string) {
 		fatal(logMain, "create worktrees dir", "error", err)
 	}
 
+	instructionsPath, err := ensureWorkspaceInstructions(configDir, workspaces)
+	if err != nil {
+		logMain.Warn("init workspace instructions", "error", err)
+	} else {
+		logMain.Info("workspace instructions", "path", instructionsPath)
+	}
+
 	runner := NewRunner(store, RunnerConfig{
-		Command:      *containerCmd,
-		SandboxImage: *sandboxImage,
-		EnvFile:      *envFile,
-		Workspaces:   strings.Join(workspaces, " "),
-		WorktreesDir: worktreesDir,
+		Command:          *containerCmd,
+		SandboxImage:     *sandboxImage,
+		EnvFile:          *envFile,
+		Workspaces:       strings.Join(workspaces, " "),
+		WorktreesDir:     worktreesDir,
+		InstructionsPath: instructionsPath,
 	})
 
 	// Clean up any worktree dirs that don't correspond to a known task
@@ -136,7 +144,7 @@ func runServer(configDir string, args []string) {
 
 	logMain.Info("workspaces", "paths", strings.Join(workspaces, ", "))
 
-	handler := NewHandler(store, runner)
+	handler := NewHandler(store, runner, configDir, workspaces)
 
 	mux := http.NewServeMux()
 
@@ -146,6 +154,9 @@ func runServer(configDir string, args []string) {
 
 	// API routes
 	mux.HandleFunc("GET /api/config", handler.GetConfig)
+	mux.HandleFunc("GET /api/instructions", handler.GetInstructions)
+	mux.HandleFunc("PUT /api/instructions", handler.UpdateInstructions)
+	mux.HandleFunc("POST /api/instructions/reinit", handler.ReinitInstructions)
 	mux.HandleFunc("GET /api/git/status", handler.GitStatus)
 	mux.HandleFunc("GET /api/git/stream", handler.GitStatusStream)
 	mux.HandleFunc("POST /api/git/push", handler.GitPush)

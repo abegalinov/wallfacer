@@ -16,17 +16,20 @@ import (
 )
 
 type Handler struct {
-	store  *Store
-	runner *Runner
+	store      *Store
+	runner     *Runner
+	configDir  string
+	workspaces []string
 }
 
-func NewHandler(store *Store, runner *Runner) *Handler {
-	return &Handler{store: store, runner: runner}
+func NewHandler(store *Store, runner *Runner, configDir string, workspaces []string) *Handler {
+	return &Handler{store: store, runner: runner, configDir: configDir, workspaces: workspaces}
 }
 
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"workspaces": h.runner.Workspaces(),
+		"workspaces":        h.runner.Workspaces(),
+		"instructions_path": instructionsFilePath(h.configDir, h.workspaces),
 	})
 }
 
@@ -621,6 +624,50 @@ func (h *Handler) SyncTask(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 	}
 	go h.runner.SyncWorktrees(id, sessionID, oldStatus)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "syncing"})
+}
+
+func (h *Handler) GetInstructions(w http.ResponseWriter, r *http.Request) {
+	path := instructionsFilePath(h.configDir, h.workspaces)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSON(w, http.StatusOK, map[string]string{"content": ""})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"content": string(content)})
+}
+
+func (h *Handler) UpdateInstructions(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	path := instructionsFilePath(h.configDir, h.workspaces)
+	if err := os.WriteFile(path, []byte(req.Content), 0644); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (h *Handler) ReinitInstructions(w http.ResponseWriter, r *http.Request) {
+	path, err := reinitWorkspaceInstructions(h.configDir, h.workspaces)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"content": string(content)})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -17,30 +17,33 @@ import (
 const maxRebaseRetries = 3
 
 type Runner struct {
-	store        *Store
-	command      string
-	sandboxImage string
-	envFile      string
-	workspaces   string
-	worktreesDir string // base dir for per-task worktrees, e.g. ~/.wallfacer/worktrees
+	store            *Store
+	command          string
+	sandboxImage     string
+	envFile          string
+	workspaces       string
+	worktreesDir     string // base dir for per-task worktrees, e.g. ~/.wallfacer/worktrees
+	instructionsPath string // path to workspace-level CLAUDE.md
 }
 
 type RunnerConfig struct {
-	Command      string
-	SandboxImage string
-	EnvFile      string
-	Workspaces   string
-	WorktreesDir string
+	Command          string
+	SandboxImage     string
+	EnvFile          string
+	Workspaces       string
+	WorktreesDir     string
+	InstructionsPath string
 }
 
 func NewRunner(store *Store, cfg RunnerConfig) *Runner {
 	return &Runner{
-		store:        store,
-		command:      cfg.Command,
-		sandboxImage: cfg.SandboxImage,
-		envFile:      cfg.EnvFile,
-		workspaces:   cfg.Workspaces,
-		worktreesDir: cfg.WorktreesDir,
+		store:            store,
+		command:          cfg.Command,
+		sandboxImage:     cfg.SandboxImage,
+		envFile:          cfg.EnvFile,
+		workspaces:       cfg.Workspaces,
+		worktreesDir:     cfg.WorktreesDir,
+		instructionsPath: cfg.InstructionsPath,
 	}
 }
 
@@ -790,6 +793,13 @@ func (r *Runner) runContainer(ctx context.Context, taskID uuid.UUID, prompt, ses
 
 	// Mount claude config volume.
 	args = append(args, "-v", "claude-config:/home/claude/.claude")
+
+	// Mount workspace-level CLAUDE.md so Claude Code picks it up automatically.
+	if r.instructionsPath != "" {
+		if _, err := os.Stat(r.instructionsPath); err == nil {
+			args = append(args, "-v", r.instructionsPath+":/workspace/CLAUDE.md:z,ro")
+		}
+	}
 
 	// Mount workspaces, substituting per-task worktree paths where available.
 	if r.workspaces != "" {

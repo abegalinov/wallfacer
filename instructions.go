@@ -1,0 +1,108 @@
+package main
+
+import (
+	"crypto/sha256"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+// defaultInstructionsTemplate is the baseline CLAUDE.md content written into every
+// new workspace instructions file. It provides general guidance for Claude Code
+// operating inside a Wallfacer-managed task.
+const defaultInstructionsTemplate = `# Workspace Instructions
+
+This file provides guidance to Claude Code when working on tasks in this workspace.
+
+## General Notes
+
+- You are operating inside a Wallfacer task. Complete the task described in the prompt.
+- Make focused, well-scoped changes. Prefer editing existing files over creating new ones.
+- Avoid over-engineering: only make changes that are directly requested or clearly necessary.
+- Run tests if available to verify your changes work correctly.
+- Write clear, descriptive commit messages explaining the "why" not just the "what".
+- Do not create documentation files or README updates unless explicitly requested.
+`
+
+// instructionsKey returns a stable 16-char hex key for a given set of workspace paths.
+// The key is derived from the SHA-256 of the sorted, colon-joined absolute paths,
+// so the same set of workspaces always maps to the same file regardless of order.
+func instructionsKey(workspaces []string) string {
+	sorted := make([]string, len(workspaces))
+	copy(sorted, workspaces)
+	sort.Strings(sorted)
+	h := sha256.Sum256([]byte(strings.Join(sorted, ":")))
+	return fmt.Sprintf("%x", h[:8]) // 16 hex chars
+}
+
+// instructionsFilePath returns the path to the workspace CLAUDE.md for a given set of
+// workspace directories. Each unique combination of workspaces has its own file.
+func instructionsFilePath(configDir string, workspaces []string) string {
+	dir := filepath.Join(configDir, "instructions")
+	return filepath.Join(dir, instructionsKey(workspaces)+".md")
+}
+
+// ensureWorkspaceInstructions ensures the CLAUDE.md for the given workspace set exists.
+// If it does not exist yet it is created from the default template plus any CLAUDE.md
+// files found in the workspace directories. Returns the path to the file.
+func ensureWorkspaceInstructions(configDir string, workspaces []string) (string, error) {
+	dir := filepath.Join(configDir, "instructions")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create instructions dir: %w", err)
+	}
+
+	path := instructionsFilePath(configDir, workspaces)
+
+	// Already exists — honour the user's edits, do not overwrite.
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+
+	content := buildInstructionsContent(workspaces)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("write instructions: %w", err)
+	}
+	return path, nil
+}
+
+// reinitWorkspaceInstructions rebuilds the workspace CLAUDE.md from the default template
+// plus any per-repo CLAUDE.md files, overwriting any existing content.
+func reinitWorkspaceInstructions(configDir string, workspaces []string) (string, error) {
+	dir := filepath.Join(configDir, "instructions")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create instructions dir: %w", err)
+	}
+
+	path := instructionsFilePath(configDir, workspaces)
+	content := buildInstructionsContent(workspaces)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("write instructions: %w", err)
+	}
+	return path, nil
+}
+
+// buildInstructionsContent assembles CLAUDE.md content from:
+//  1. The default wallfacer instructions template.
+//  2. Any CLAUDE.md found in the workspace directories (appended in order).
+func buildInstructionsContent(workspaces []string) string {
+	var sb strings.Builder
+	sb.WriteString(defaultInstructionsTemplate)
+
+	for _, ws := range workspaces {
+		claudePath := filepath.Join(ws, "CLAUDE.md")
+		raw, err := os.ReadFile(claudePath)
+		if err != nil {
+			continue
+		}
+		name := filepath.Base(ws)
+		sb.WriteString(fmt.Sprintf("\n---\n\n## Instructions from `%s`\n\n", name))
+		sb.Write(raw)
+		if len(raw) > 0 && raw[len(raw)-1] != '\n' {
+			sb.WriteByte('\n')
+		}
+	}
+
+	return sb.String()
+}

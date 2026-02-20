@@ -45,10 +45,11 @@ There are no tests currently. The server uses `net/http` stdlib routing (Go 1.22
 
 Key server files:
 - `main.go` — Subcommand dispatch, CLI flags, workspace resolution, HTTP routing, browser launch
-- `handler.go` — API handlers: tasks CRUD, feedback, resume, complete, SSE streaming
-- `runner.go` — Container orchestration via `os/exec`; task execution loop; commit pipeline; usage tracking
+- `handler.go` — API handlers: tasks CRUD, feedback, resume, complete, cancel, sync, SSE streaming
+- `runner.go` — Container orchestration via `os/exec`; task execution loop; commit pipeline; usage tracking; worktree sync
 - `store.go` — Per-task directory persistence, data models (Task, TaskUsage, TaskEvent), event sourcing
 - `git.go` — Git worktree operations, branch detection, rebase/merge
+- `instructions.go` — Workspace-level CLAUDE.md management (`~/.wallfacer/instructions/`)
 - `logger.go` — Structured logging
 - `ui/index.html` + `ui/js/` — Kanban board UI (vanilla JS + Tailwind CSS CDN + Sortable.js)
 
@@ -57,26 +58,33 @@ Key server files:
 See `docs/orchestration.md` for full details.
 
 - `GET /` — Kanban UI
+- `GET /api/config` — Server config (workspaces, instructions path)
 - `GET /api/tasks` — List all tasks
 - `POST /api/tasks` — Create task (JSON: `{prompt, timeout}`)
-- `PATCH /api/tasks/{id}` — Update status/position/prompt/timeout
+- `PATCH /api/tasks/{id}` — Update status/position/prompt/timeout/fresh_start
 - `DELETE /api/tasks/{id}` — Delete task
 - `POST /api/tasks/{id}/feedback` — Submit feedback for waiting tasks
 - `POST /api/tasks/{id}/done` — Mark waiting task as done (triggers commit-and-push)
+- `POST /api/tasks/{id}/cancel` — Cancel task; discard worktrees; move to Cancelled
 - `POST /api/tasks/{id}/resume` — Resume failed task with existing session
+- `POST /api/tasks/{id}/sync` — Rebase task worktrees onto latest default branch
 - `POST /api/tasks/{id}/archive` — Move done task to archived
 - `POST /api/tasks/{id}/unarchive` — Restore archived task
 - `GET /api/tasks/stream` — SSE: push task list on state change
 - `GET /api/tasks/{id}/events` — Task event timeline
+- `GET /api/tasks/{id}/diff` — Git diff for task worktrees vs default branch
 - `GET /api/tasks/{id}/outputs/{filename}` — Raw Claude Code output per turn
 - `GET /api/tasks/{id}/logs` — SSE: stream live container logs
 - `GET /api/git/status` — Git status for all workspaces
 - `GET /api/git/stream` — SSE: git status updates
 - `POST /api/git/push` — Push a workspace
+- `GET /api/instructions` — Get workspace CLAUDE.md content
+- `PUT /api/instructions` — Save workspace CLAUDE.md (JSON: `{content}`)
+- `POST /api/instructions/reinit` — Rebuild workspace CLAUDE.md from default + repo files
 
 ## Task Lifecycle
 
-States: `backlog` → `in_progress` → `done` | `waiting` | `failed` | `archived`
+States: `backlog` → `in_progress` → `done` | `waiting` | `failed` | `cancelled` | `archived`
 
 See `docs/task-lifecycle.md` for the full state machine, turn loop, and data models.
 
@@ -86,8 +94,10 @@ See `docs/task-lifecycle.md` for the full state machine, turn loop, and data mod
 - `max_tokens`/`pause_turn` → auto-continue in same session
 - Feedback on Waiting → resumes execution
 - "Mark as Done" on Waiting → Done + auto commit-and-push
+- "Cancel" on Backlog/In Progress/Waiting/Failed → Cancelled; kills container, discards worktrees
 - "Resume" on Failed → continues in existing session
-- "Retry" on Failed/Done → resets to Backlog with fresh session
+- "Retry" on Failed/Done/Cancelled → resets to Backlog with fresh session
+- "Sync" on Waiting/Failed → rebases worktrees onto latest default branch without merging
 
 ## Key Conventions
 
@@ -97,8 +107,20 @@ See `docs/task-lifecycle.md` for the full state machine, turn loop, and data mod
 - **Git worktrees** per task for isolation; see `docs/git-worktrees.md`
 - **Usage tracking** accumulates input/output tokens, cache tokens, and cost across turns
 - **Container execution** creates ephemeral containers via `os/exec`; mounts worktrees under `/workspace/<basename>`
+- **Workspace CLAUDE.md** mounted read-only at `/workspace/CLAUDE.md` so Claude Code picks it up automatically
 - **Frontend** uses SSE for live updates; escapes HTML to prevent XSS
 - **No framework** on backend (stdlib `net/http`) or frontend (vanilla JS)
+
+## Workspace CLAUDE.md (Instructions)
+
+Each unique combination of workspace directories gets its own `CLAUDE.md` in `~/.wallfacer/instructions/`.
+The file is identified by a SHA-256 fingerprint of the sorted workspace paths, so `wallfacer run ~/a ~/b` and `wallfacer run ~/b ~/a` share the same file.
+
+On first run the file is created from:
+1. A default wallfacer template (defined in `instructions.go`).
+2. Any `CLAUDE.md` found at the root of each workspace directory (appended in order).
+
+Users can manually edit the file from **Settings → CLAUDE.md → Edit** in the UI, or regenerate it from the repo files at any time with **Re-init**. The file is mounted read-only into every task container at `/workspace/CLAUDE.md`.
 
 ## Configuration
 
