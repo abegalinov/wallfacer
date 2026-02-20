@@ -852,3 +852,36 @@ Both cases retry with `git worktree add --force worktreePath branchName`.
 The "Cancel Task" section has been moved to just above the "Delete task" button at the bottom of the task card detail modal.
 
 ---
+
+## Task: d0b63b6b
+
+**Date**: 2026-02-21 01:36:04  
+**Branch**: task/d0b63b6b  
+**Commit**: `a717608144211b17052b34beb0def0adf849b131`
+
+**Prompt**:
+> seeing fatal error
+> 
+> 
+> 01:30:29.482  ERR  runner    setup worktrees  │  task=2cfcfe40  error="createWorktree for /Users/changkun/dev/changkun.de/wallfacer: git worktree add in /Users/changkun/dev/changkun.de/wallfacer: exit status 255\nPreparing worktree (new branch 'task/2cfcfe40')\nfatal: a br…"
+> 
+> 
+> 
+> investigate and fix
+
+**Result**:
+Builds cleanly. Here's a summary of the three changes made:
+
+---
+
+**Root cause:** `git worktree add -b task/<uuid8>` fails with "fatal: a branch named 'task/2cfcfe40' already exists" because the branch was left behind by a previous run that wasn't properly cleaned up before retry.
+
+**Three-layer fix:**
+
+1. **`handler.go` (primary fix)** — The retry path (`failed`/`done` → `backlog`) now calls `cleanupWorktrees` on any existing `WorktreePaths` *before* `ResetTaskForRetry` wipes them from the store. Previously, when a task failed mid-execution its worktrees were preserved for potential resume, but retrying cleared the store record without physically removing the git branch.
+
+2. **`git.go` `createWorktree` (defensive fix)** — If `git worktree add -b` reports "already exists", it force-deletes the stale orphaned branch with `git branch -D` and retries. This handles edge cases like manual directory deletion or `pruneOrphanedWorktrees` removing the directory but leaving the branch.
+
+3....
+
+---
