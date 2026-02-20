@@ -400,3 +400,41 @@ The changes look correct. Here's a summary of what was changed:
 - Set inline `gap` to `'0'` to defer to the CSS-driven padding/border approach
 
 ---
+
+## Task: 578edef8
+
+**Date**: 2026-02-21 00:44:30  
+**Branch**: task/578edef8  
+**Commit**: `bc56be23d825ecdf5e7c2266fc71952111f517a3`
+
+**Prompt**:
+> Currently all task cards contains only one prompt.
+> 
+> I want to have the system automatically create a task title which summarize the main goal of the task in 2-5 words. Make each task card show both task desc and title.
+> 
+> The title generation should be async, and optionally displayed only when it is available.
+> 
+> The title generation can be done via a sandbox exeuction by feeding task desc to sandbox and let it summarize quickly.
+
+**Result**:
+All done. Here's a summary of what was changed:
+
+**`store.go`**
+- Added `Title string` field (`json:"title,omitempty"`) to the `Task` struct
+- Added `UpdateTaskTitle(ctx, id, title)` method that saves the title and notifies SSE subscribers
+
+**`runner.go`**
+- Added `GenerateTitle(taskID, prompt)` method that:
+  - Spins up a minimal ephemeral container (`wallfacer-title-<uuid8>`) with a 60s timeout
+  - Sends a prompt asking Claude for a 2-5 word title — no workspace or CLAUDE.md mounts needed
+  - Parses the NDJSON output the same way as the main runner
+  - Strips surrounding quotes and whitespace from the result
+  - Calls `store.UpdateTaskTitle` which triggers an SSE push to update all connected browser tabs
+
+**`handler.go`**
+- In `CreateTask`, after persisting the task, fires `go h.runner.GenerateTitle(task.ID, task.Prompt)` — fully non-blocking
+
+**`ui/js/render.js`**
+- `updateCard` now renders `<div class="card-title">...</div>` above the prompt text, but only when `t.title` is pre...
+
+---
