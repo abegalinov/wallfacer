@@ -908,12 +908,11 @@ func (r *Runner) writeProgressMD(task *Task, commitHashes map[string]string) err
 	return nil
 }
 
-func (r *Runner) runContainer(ctx context.Context, taskID uuid.UUID, prompt, sessionID string, worktreeOverrides map[string]string) (*claudeOutput, []byte, []byte, error) {
-	containerName := "wallfacer-" + taskID.String()
-
-	// Remove any leftover container from a previous interrupted run.
-	exec.Command(r.command, "rm", "-f", containerName).Run()
-
+// buildContainerArgs constructs the full argument list for the container run command
+// (everything after the container runtime binary, e.g. podman/docker).
+// It is a pure function of runner configuration and the supplied parameters,
+// which makes it easy to unit-test without actually launching a container.
+func (r *Runner) buildContainerArgs(containerName, prompt, sessionID string, worktreeOverrides map[string]string) []string {
 	args := []string{"run", "--rm", "--network=host", "--name", containerName}
 
 	if r.envFile != "" {
@@ -955,6 +954,17 @@ func (r *Runner) runContainer(ctx context.Context, taskID uuid.UUID, prompt, ses
 	if sessionID != "" {
 		args = append(args, "--resume", sessionID)
 	}
+
+	return args
+}
+
+func (r *Runner) runContainer(ctx context.Context, taskID uuid.UUID, prompt, sessionID string, worktreeOverrides map[string]string) (*claudeOutput, []byte, []byte, error) {
+	containerName := "wallfacer-" + taskID.String()
+
+	// Remove any leftover container from a previous interrupted run.
+	exec.Command(r.command, "rm", "-f", containerName).Run()
+
+	args := r.buildContainerArgs(containerName, prompt, sessionID, worktreeOverrides)
 
 	cmd := exec.CommandContext(ctx, r.command, args...)
 	var stdout, stderr bytes.Buffer
