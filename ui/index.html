@@ -965,9 +965,9 @@ function updateCard(card, t) {
       <input type="checkbox" id="resume-chk-${t.id}" ${!t.fresh_start ? 'checked' : ''} onchange="toggleFreshStart('${t.id}', !this.checked)" style="width:11px;height:11px;cursor:pointer;accent-color:var(--accent);">
       <label for="resume-chk-${t.id}" class="text-[10px] text-v-muted" style="cursor:pointer;">Resume previous session</label>
     </div>` : ''}
-    <div class="text-sm line-clamp-3 card-prose">${renderMarkdown(t.prompt)}</div>
+    <div class="text-sm card-prose overflow-hidden" style="max-height:4.5em;">${renderMarkdown(t.prompt)}</div>
     ${t.result ? `
-    <div class="text-xs text-v-secondary mt-1 line-clamp-2 card-prose">${renderMarkdown(t.result)}</div>
+    <div class="text-xs text-v-secondary mt-1 card-prose overflow-hidden" style="max-height:3.2em;">${renderMarkdown(t.result)}</div>
     ` : ''}
   `;
 }
