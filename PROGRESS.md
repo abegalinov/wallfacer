@@ -973,3 +973,33 @@ Compiles cleanly. Here's a summary of the root cause and fix:
 This covers the full range of changes: committed → staged → unstaged tracked → untracked, all now...
 
 ---
+
+## Task: 2cfcfe40
+
+**Date**: 2026-02-21 01:57:51  
+**Branch**: task/2cfcfe40  
+**Commit**: `4f2094748acfe6e15252480de7f50028bfaee9bf`
+
+**Prompt**:
+> Currently task details for the waiting ones show "Result", but seems only taken from the last message of claude code.
+> 
+> Sometimes claude might have multiple results such as implementation plans created for a given task.
+> 
+> I want to have it also be viewed as: 1) multiple results and rendered properly; 2) for results like plans should be explicitly highlighted as plans
+
+**Result**:
+Everything looks good. Let me summarize what was implemented:
+
+**Changes made across 3 files:**
+
+**`ui/index.html`** — The result section is now a simple container with a dynamic list (`modal-results-list`), replacing the old fixed-ID `modal-result`/`modal-result-rendered` elements and their copy/toggle buttons.
+
+**`ui/js/modal.js`** — Four new functions added at the top:
+- `detectResultType(text)` — heuristic that flags a result as a "plan" if it contains headings matching words like plan, phase, step, design, architecture, strategy, proposal, etc.
+- `renderResultsFromEvents(results)` — builds the multi-entry result list; the last (most recent) turn is always expanded, earlier turns are collapsed in `<details>` elements; heading says "Results" (plural) when there are multiple
+- `copyResultEntry(entryId)` / `toggleResultEntryRaw(entryId)` — per-entry copy and raw/preview toggle
+
+In `openModal`:
+- The old single-result block is replaced with `renderResultsFromEvents([task.resu...
+
+---
