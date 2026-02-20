@@ -48,13 +48,6 @@ type TaskEvent struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
-// legacyStoreData is the old monolithic format used for migration.
-type legacyStoreData struct {
-	Tasks       []Task      `json:"tasks"`
-	Events      []TaskEvent `json:"events"`
-	NextEventID int64       `json:"next_event_id"`
-}
-
 type Store struct {
 	mu      sync.RWMutex
 	dir     string

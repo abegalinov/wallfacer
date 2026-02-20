@@ -1,5 +1,4 @@
 .env
-traces/*.jsonl
 data/
-data.json
 wallfacer
+.claude/settings.local.json

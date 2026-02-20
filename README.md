@@ -31,7 +31,7 @@ cp .env.example ~/.wallfacer/.env
 make build
 
 # 4. Start the server with workspaces
-wallfacer ~/projects/myapp ~/projects/lib
+wallfacer run ~/projects/myapp ~/projects/lib
 ```
 
 The browser opens automatically to http://localhost:8080.
@@ -40,16 +40,19 @@ The browser opens automatically to http://localhost:8080.
 
 ```bash
 # Mount specific workspace directories
-wallfacer ~/project1 ~/project2
+wallfacer run ~/project1 ~/project2
 
 # Defaults to current directory if no args given
-wallfacer
+wallfacer run
 
 # Custom port, skip browser
-wallfacer -addr :9090 -no-browser ~/myapp
+wallfacer run -addr :9090 -no-browser ~/myapp
+
+# Show configuration and env file status
+wallfacer env
 
 # All flags
-wallfacer -h
+wallfacer run -help
 ```
 
 ## Task Lifecycle
@@ -89,7 +92,7 @@ BACKLOG ──drag──→ IN_PROGRESS ──auto──→ DONE
 ```
 .
 ├── Makefile              # Top-level convenience targets
-├── main.go               # CLI flags, workspace resolution, HTTP routes, browser launch
+├── main.go               # Subcommand dispatch, CLI flags, workspace resolution, HTTP routes, browser launch
 ├── handler.go            # API handlers: tasks CRUD, feedback, resume, complete, outputs
 ├── runner.go             # Container orchestration, raw output persistence, usage tracking
 ├── store.go              # Per-task directory persistence, data models
@@ -116,7 +119,12 @@ Set in `~/.wallfacer/.env` (passed to sandbox containers):
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | OAuth token from `claude setup-token` |
 
-CLI flags (all have env var fallbacks):
+Subcommands:
+
+- `wallfacer run [flags] [workspace ...]` — Start the Kanban server
+- `wallfacer env` — Show configuration and env file status
+
+Flags for `wallfacer run` (with env var fallbacks):
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
@@ -124,10 +132,10 @@ CLI flags (all have env var fallbacks):
 | `-data` | `DATA_DIR` | `~/.wallfacer/data` | Data directory |
 | `-container` | `CONTAINER_CMD` | `/opt/podman/bin/podman` | Container runtime |
 | `-image` | `SANDBOX_IMAGE` | `wallfacer:latest` | Sandbox image |
-| `-env` | `ENV_FILE` | `~/.wallfacer/.env` | Env file for container |
+| `-env-file` | `ENV_FILE` | `~/.wallfacer/.env` | Env file for container |
 | `-no-browser` | — | `false` | Don't open browser |
 
-Positional arguments are workspace directories to mount (defaults to current directory).
+Positional arguments after flags are workspace directories to mount (defaults to current directory).
 
 ## Requirements
 
