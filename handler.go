@@ -459,9 +459,12 @@ func (h *Handler) StreamTasks(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// serveStoredLogs renders the saved stream-json turn output for tasks that are
-// no longer running (container removed with --rm so live logs are unavailable).
+// serveStoredLogs serves the saved turn output for tasks that are no longer
+// running (container removed with --rm so live logs are unavailable).
+// When the "raw" query parameter is "true" the raw NDJSON is returned;
+// otherwise a human-readable rendering via renderStreamJSON is returned.
 func (h *Handler) serveStoredLogs(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	rawMode := r.URL.Query().Get("raw") == "true"
 	outputsDir := filepath.Join(h.store.dir, id.String(), "outputs")
 	entries, err := os.ReadDir(outputsDir)
 	if err != nil {
@@ -488,7 +491,11 @@ func (h *Handler) serveStoredLogs(w http.ResponseWriter, r *http.Request, id uui
 		}
 		turnNum := strings.TrimSuffix(strings.TrimPrefix(name, "turn-"), ".json")
 		fmt.Fprintf(w, "=== Turn %s ===\n", turnNum)
-		renderStreamJSON(w, content)
+		if rawMode {
+			w.Write(content)
+		} else {
+			renderStreamJSON(w, content)
+		}
 		fmt.Fprintln(w)
 		wrote = true
 	}

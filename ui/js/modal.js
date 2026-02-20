@@ -161,31 +161,128 @@ function closeModal() {
     logsAbort.abort();
     logsAbort = null;
   }
-  document.getElementById('modal-logs').textContent = '';
+  rawLogBuffer = '';
+  document.getElementById('modal-logs').innerHTML = '';
   currentTaskId = null;
   document.getElementById('modal').classList.add('hidden');
   document.getElementById('modal').classList.remove('flex');
 }
 
+// ANSI foreground colors tuned for the dark (#0d1117) terminal background.
+const ANSI_FG = ['#484f58','#ff7b72','#3fb950','#e3b341','#79c0ff','#ff79c6','#39c5cf','#b1bac4'];
+const ANSI_FG_BRIGHT = ['#6e7681','#ffa198','#56d364','#f8e3ad','#cae8ff','#fecfe8','#b3f0ff','#ffffff'];
+
+// Convert ANSI escape codes to HTML <span> tags.
+// Carriage returns are collapsed so only the last overwrite per line is shown,
+// matching how a real terminal renders spinner animations.
+function ansiToHtml(rawText) {
+  const lines = rawText.split('\n');
+  const text = lines.map(line => {
+    const parts = line.split('\r');
+    return parts[parts.length - 1];
+  }).join('\n');
+
+  const seqRegex = /\x1b\[([0-9;]*)([A-Za-z])/g;
+  let result = '';
+  let lastIndex = 0;
+  let openSpans = 0;
+  let match;
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  while ((match = seqRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) result += esc(text.slice(lastIndex, match.index));
+    lastIndex = seqRegex.lastIndex;
+
+    if (match[2] === 'm') {
+      while (openSpans > 0) { result += '</span>'; openSpans--; }
+      const codes = match[1] ? match[1].split(';').map(Number) : [0];
+      let style = '';
+      let i = 0;
+      while (i < codes.length) {
+        const c = codes[i];
+        if (c === 1) style += 'font-weight:bold;';
+        else if (c === 2) style += 'opacity:0.6;';
+        else if (c === 3) style += 'font-style:italic;';
+        else if (c === 4) style += 'text-decoration:underline;';
+        else if (c >= 30 && c <= 37) style += `color:${ANSI_FG[c - 30]};`;
+        else if (c >= 90 && c <= 97) style += `color:${ANSI_FG_BRIGHT[c - 90]};`;
+        else if (c === 38 && codes[i + 1] === 2 && i + 4 < codes.length) {
+          style += `color:rgb(${codes[i + 2]},${codes[i + 3]},${codes[i + 4]});`;
+          i += 4;
+        }
+        i++;
+      }
+      if (style) { result += `<span style="${style}">`; openSpans++; }
+    }
+    // Other ANSI commands (cursor movement, erase-line, etc.) are intentionally ignored.
+  }
+
+  if (lastIndex < text.length) result += esc(text.slice(lastIndex));
+  while (openSpans > 0) { result += '</span>'; openSpans--; }
+  return result;
+}
+
+// Returns true when a line is a raw JSON object from Claude Code's stdout.
+// These are structural result envelopes, not human-readable progress output.
+function isJsonLine(line) {
+  const t = line.trim();
+  if (t.length === 0 || (t[0] !== '{' && t[0] !== '[')) return false;
+  try { JSON.parse(t); return true; } catch { return false; }
+}
+
+function renderLogs() {
+  const logsEl = document.getElementById('modal-logs');
+  const btn = document.getElementById('toggle-logs-btn');
+  if (logsPrettyMode) {
+    const filtered = rawLogBuffer.split('\n').filter(l => !isJsonLine(l)).join('\n');
+    logsEl.innerHTML = ansiToHtml(filtered);
+    if (btn) btn.textContent = 'Raw';
+  } else {
+    logsEl.textContent = rawLogBuffer.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+    if (btn) btn.textContent = 'Pretty';
+  }
+  logsEl.scrollTop = logsEl.scrollHeight;
+}
+
+function toggleLogsMode() {
+  logsPrettyMode = !logsPrettyMode;
+  const task = tasks.find(t => t.id === currentTaskId);
+  const isLive = task && (task.status === 'in_progress' || task.status === 'committing');
+  if (isLive) {
+    // Live logs are buffered in rawLogBuffer — just re-render.
+    renderLogs();
+  } else {
+    // Stored logs: re-fetch with the appropriate format from the server.
+    _fetchLogs(currentTaskId, !logsPrettyMode);
+  }
+}
+
 function startLogStream(id) {
+  logsPrettyMode = true;
+  _fetchLogs(id, false);
+}
+
+function _fetchLogs(id, raw) {
   if (logsAbort) logsAbort.abort();
   logsAbort = new AbortController();
+  rawLogBuffer = '';
   const logsEl = document.getElementById('modal-logs');
-  logsEl.textContent = '';
+  logsEl.innerHTML = '';
   const decoder = new TextDecoder();
-  const ansiRegex = /\x1b\[[0-9;]*[a-zA-Z]/g;
+  const url = `/api/tasks/${id}/logs` + (raw ? '?raw=true' : '');
 
-  fetch(`/api/tasks/${id}/logs`, { signal: logsAbort.signal })
+  fetch(url, { signal: logsAbort.signal })
     .then(res => {
       if (!res.ok || !res.body) return;
       const reader = res.body.getReader();
       function read() {
         reader.read().then(({ done, value }) => {
           if (done) return;
-          const text = decoder.decode(value, { stream: true });
-          const cleaned = text.replace(ansiRegex, '');
-          logsEl.textContent += cleaned;
-          logsEl.scrollTop = logsEl.scrollHeight;
+          rawLogBuffer += decoder.decode(value, { stream: true });
+          renderLogs();
           read();
         }).catch(() => {});
       }

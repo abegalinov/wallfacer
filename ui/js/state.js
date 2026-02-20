@@ -2,6 +2,8 @@
 let tasks = [];
 let currentTaskId = null;
 let logsAbort = null;
+let rawLogBuffer = '';
+let logsPrettyMode = true;
 let showArchived = localStorage.getItem('wallfacer-show-archived') === 'true';
 
 // Tasks SSE state
