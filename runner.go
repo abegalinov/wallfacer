@@ -317,6 +317,12 @@ func (r *Runner) Run(taskID uuid.UUID, prompt, sessionID string, resumedFromWait
 		default:
 			// Empty or unknown stop_reason — waiting for user feedback.
 			// Do NOT clean up worktrees; task may resume.
+			// Don't overwrite a cancelled status — the cancel handler may have
+			// killed the container and already transitioned the task.
+			if cur, _ := r.store.GetTask(bgCtx, taskID); cur != nil && cur.Status == "cancelled" {
+				statusSet = true
+				return
+			}
 			statusSet = true
 			r.store.UpdateTaskStatus(bgCtx, taskID, "waiting")
 			r.store.InsertEvent(bgCtx, taskID, "state_change", map[string]string{
