@@ -34,3 +34,52 @@ function formatTimeout(minutes) {
   if (minutes % 60 === 0) return (minutes / 60) + 'h';
   return Math.floor(minutes / 60) + 'h' + (minutes % 60) + 'm';
 }
+
+// --- Mobile column navigation ---
+
+function scrollToColumn(wrapperId) {
+  const el = document.getElementById(wrapperId);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+}
+
+// Keep the mobile nav active pill in sync with the visible column.
+(function initMobileColNav() {
+  function setup() {
+    const board = document.getElementById('board');
+    const nav = document.getElementById('mobile-col-nav');
+    if (!board || !nav) return;
+
+    const colWrapperIds = [
+      'col-wrapper-backlog',
+      'col-wrapper-in_progress',
+      'col-wrapper-waiting',
+      'col-wrapper-done',
+      'col-wrapper-cancelled',
+    ];
+
+    const observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (!entry.isIntersecting) return;
+        const id = entry.target.id;
+        nav.querySelectorAll('.mobile-col-btn').forEach(function(btn) {
+          btn.classList.toggle('active', btn.dataset.col === id);
+        });
+      });
+    }, {
+      root: board,
+      threshold: 0.5,
+    });
+
+    colWrapperIds.forEach(function(id) {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setup);
+  } else {
+    setup();
+  }
+})();

@@ -147,9 +147,18 @@
   </div>
 </div>
 
+<!-- Mobile column navigator (hidden on desktop via CSS) -->
+<nav id="mobile-col-nav" aria-label="Column navigation">
+  <button class="mobile-col-btn active" data-col="col-wrapper-backlog" onclick="scrollToColumn('col-wrapper-backlog')">Backlog</button>
+  <button class="mobile-col-btn" data-col="col-wrapper-in_progress" onclick="scrollToColumn('col-wrapper-in_progress')">In Progress</button>
+  <button class="mobile-col-btn" data-col="col-wrapper-waiting" onclick="scrollToColumn('col-wrapper-waiting')">Waiting</button>
+  <button class="mobile-col-btn" data-col="col-wrapper-done" onclick="scrollToColumn('col-wrapper-done')">Done</button>
+  <button class="mobile-col-btn" data-col="col-wrapper-cancelled" onclick="scrollToColumn('col-wrapper-cancelled')">Cancelled</button>
+</nav>
+
 <!-- Board -->
-<main class="grid grid-cols-5 gap-4 p-6 flex-1 min-h-0" id="board">
-  <div class="flex flex-col min-h-0">
+<main class="board-grid flex-1 min-h-0" id="board">
+  <div class="flex flex-col min-h-0" id="col-wrapper-backlog">
     <div class="flex items-center gap-2 mb-3 px-1">
       <h2 class="col-header col-header-backlog">Backlog</h2>
       <span id="count-backlog" class="text-xs text-v-muted">0</span>
@@ -176,21 +185,21 @@
     </div>
     <div id="col-backlog" class="column col-bg space-y-2" data-status="backlog"></div>
   </div>
-  <div class="flex flex-col min-h-0">
+  <div class="flex flex-col min-h-0" id="col-wrapper-in_progress">
     <div class="flex items-center gap-2 mb-3 px-1">
       <h2 class="col-header col-header-progress">In Progress</h2>
       <span id="count-in_progress" class="text-xs text-v-muted">0</span>
     </div>
     <div id="col-in_progress" class="column col-bg space-y-2" data-status="in_progress"></div>
   </div>
-  <div class="flex flex-col min-h-0">
+  <div class="flex flex-col min-h-0" id="col-wrapper-waiting">
     <div class="flex items-center gap-2 mb-3 px-1">
       <h2 class="col-header col-header-waiting">Waiting</h2>
       <span id="count-waiting" class="text-xs text-v-muted">0</span>
     </div>
     <div id="col-waiting" class="column col-bg space-y-2" data-status="waiting"></div>
   </div>
-  <div class="flex flex-col min-h-0">
+  <div class="flex flex-col min-h-0" id="col-wrapper-done">
     <div class="flex items-center gap-2 mb-3 px-1">
       <h2 class="col-header col-header-done">Done</h2>
       <span id="count-done" class="text-xs text-v-muted">0</span>
@@ -198,7 +207,7 @@
     </div>
     <div id="col-done" class="column col-bg space-y-2" data-status="done"></div>
   </div>
-  <div class="flex flex-col min-h-0">
+  <div class="flex flex-col min-h-0" id="col-wrapper-cancelled">
     <div class="flex items-center gap-2 mb-3 px-1">
       <h2 class="col-header col-header-cancelled">Cancelled</h2>
       <span id="count-cancelled" class="text-xs text-v-muted">0</span>
