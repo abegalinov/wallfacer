@@ -1394,3 +1394,17 @@ The fix adds explicit `list-style-type` values to both `.prose-content` and `.ca
 - **Fix:** Split the combined `ul, ol` selector into two rules, adding `list-style-type: disc` for unordered lists and `list-style-type: decimal` for ordered lists — in both the modal (`.prose-content`) and card preview (`.card-prose`) contexts.
 
 ---
+
+## Task: fbbd0c71
+
+**Date**: 2026-02-21 19:32:04  
+**Branch**: task/fbbd0c71  
+**Commit**: `8140cb908b49584be7732089faeb1e56669d2e63`
+
+**Prompt**:
+> the current kandban css have some dependencies loaded from remote. this makes kanban view broken if no network. find a way to fix this
+
+**Result**:
+That's just the earlier failed `npx` attempt from when I was trying to use the network — it's stale. The `ui/css/tailwind.css` file was already written manually afterward and is in place. Nothing to fix here.
+
+---
