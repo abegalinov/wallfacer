@@ -65,44 +65,23 @@ async function saveInstructions() {
   }
 }
 
-// Called from the settings panel Re-init button (outside the editor).
-async function reinitInstructions() {
-  if (!confirm('Re-initialize workspace CLAUDE.md from the default template and each repository\'s CLAUDE.md?\n\nThis will overwrite any manual edits.')) {
-    return;
-  }
-  await _doReinit();
-}
-
 // Called from the Re-init button inside the editor modal.
 async function reinitInstructionsFromEditor() {
   if (!confirm('Re-initialize from the default template and each repository\'s CLAUDE.md?\n\nThis will overwrite your current edits.')) {
     return;
   }
-  await _doReinit(true);
-}
-
-async function _doReinit(updateEditor) {
   var statusEl = document.getElementById('instructions-status');
-  if (updateEditor && statusEl) statusEl.textContent = 'Re-initializing\u2026';
+  if (statusEl) statusEl.textContent = 'Re-initializing\u2026';
   try {
     var data = await api('/api/instructions/reinit', { method: 'POST' });
-    if (updateEditor) {
-      var textarea = document.getElementById('instructions-content');
-      if (textarea) textarea.value = data.content || '';
-      if (statusEl) {
-        statusEl.textContent = 'Re-initialized.';
-        setTimeout(function() { statusEl.textContent = ''; }, 2000);
-      }
-    } else {
-      // Called from settings panel: open editor so user sees the result.
-      showInstructionsEditor(null, data.content || '');
+    var textarea = document.getElementById('instructions-content');
+    if (textarea) textarea.value = data.content || '';
+    if (statusEl) {
+      statusEl.textContent = 'Re-initialized.';
+      setTimeout(function() { statusEl.textContent = ''; }, 2000);
     }
   } catch (e) {
-    if (updateEditor && statusEl) {
-      statusEl.textContent = 'Error: ' + e.message;
-    } else {
-      showAlert('Re-init failed: ' + e.message);
-    }
+    if (statusEl) statusEl.textContent = 'Error: ' + e.message;
   }
 }
 
