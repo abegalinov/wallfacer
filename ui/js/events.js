@@ -10,6 +10,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     const alertModal = document.getElementById('alert-modal');
     if (!alertModal.classList.contains('hidden')) { closeAlert(); return; }
+    const containerModal = document.getElementById('container-monitor-modal');
+    if (!containerModal.classList.contains('hidden')) { closeContainerMonitor(); return; }
     closeModal();
   }
 });
