@@ -135,9 +135,16 @@ All writes are atomic (temp file + `os.Rename`). On startup, `task.json` files a
 
 ## Crash Recovery
 
-On startup, any task whose status is `in_progress` or `committing` is treated as a crash victim:
+On startup, `recoverOrphanedTasks` in `server.go` reconciles tasks that were interrupted by a server restart. It first queries the container runtime to determine which containers are still running, then handles each interrupted task as follows:
 
-1. Worktrees are cleaned up (`git worktree remove --force`, `git branch -D`)
-2. Status set to `failed`
-3. An `error` event and a `state_change` event are appended to the trace log
-4. The user can then resume (same session) or retry (fresh session) from the UI
+| Previous status | Container state | Recovery action |
+|---|---|---|
+| `committing` | any | → `failed` — commit pipeline cannot be safely resumed |
+| `in_progress` | still running | Stay `in_progress`; a monitor goroutine watches the container and transitions to `waiting` once it stops |
+| `in_progress` | already stopped | → `waiting` — user can review partial output, provide feedback, or mark as done |
+
+**Why `waiting` instead of `failed` for stopped containers?**
+The task may have produced useful partial output. Moving to `waiting` lets the user inspect results and choose the next action (resume with feedback, mark as done, or cancel) rather than forcing a retry from scratch.
+
+**Monitor goroutine** (`monitorContainerUntilStopped`):
+When a container is found still running after a restart, a background goroutine polls `podman/docker ps` every 5 seconds. Once the container stops it moves the task from `in_progress` to `waiting` with an explanatory output event. If the task was already transitioned by another path (e.g. cancelled by the user) the goroutine exits cleanly.

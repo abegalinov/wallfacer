@@ -22,6 +22,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const containerPollInterval = 5 * time.Second
+
 //go:embed ui
 var uiFiles embed.FS
 
@@ -112,7 +114,7 @@ func runServer(configDir string, args []string) {
 	})
 
 	r.PruneOrphanedWorktrees(s)
-	recoverOrphanedTasks(s)
+	recoverOrphanedTasks(s, r)
 
 	logger.Main.Info("workspaces", "paths", strings.Join(workspaces, ", "))
 
@@ -270,27 +272,121 @@ func ensureImage(containerCmd, image string) string {
 	return image
 }
 
-// recoverOrphanedTasks transitions in_progress/committing tasks to failed on startup.
-func recoverOrphanedTasks(s *store.Store) {
+// recoverOrphanedTasks reconciles in_progress/committing tasks on startup by
+// checking which containers are still running.
+//
+//   - committing tasks are always moved to failed; the commit pipeline cannot be
+//     safely resumed after a restart.
+//   - in_progress tasks whose container is still running are left in_progress; a
+//     background goroutine monitors the container and moves the task to waiting
+//     once it stops.
+//   - in_progress tasks whose container is already gone are moved to waiting so
+//     the user can inspect the partial results and decide what to do next.
+func recoverOrphanedTasks(s *store.Store, r *runner.Runner) {
 	ctx := context.Background()
 	tasks, err := s.ListTasks(ctx, true)
 	if err != nil {
 		logger.Recovery.Error("list tasks", "error", err)
 		return
 	}
+
+	// Build a set of task IDs whose containers are currently running.
+	runningContainers := map[string]bool{}
+	if containers, listErr := r.ListContainers(); listErr != nil {
+		logger.Recovery.Warn("could not list containers during recovery; treating all in_progress tasks as stopped",
+			"error", listErr)
+	} else {
+		for _, c := range containers {
+			if c.State == "running" && c.TaskID != "" {
+				runningContainers[c.TaskID] = true
+			}
+		}
+	}
+
 	for _, t := range tasks {
-		if t.Status != "in_progress" && t.Status != "committing" {
+		switch t.Status {
+		case "committing":
+			// Commit pipeline cannot be resumed — mark failed.
+			logger.Recovery.Warn("task was committing at startup, marking as failed",
+				"task", t.ID)
+			s.UpdateTaskStatus(ctx, t.ID, "failed")
+			s.InsertEvent(ctx, t.ID, "error", map[string]string{
+				"error": "server restarted during commit",
+			})
+			s.InsertEvent(ctx, t.ID, "state_change", map[string]string{
+				"from": "committing", "to": "failed",
+			})
+
+		case "in_progress":
+			if runningContainers[t.ID.String()] {
+				// Container is still active — leave the task in_progress and
+				// monitor it; move to waiting once the container stops.
+				logger.Recovery.Info("container still running after restart, monitoring",
+					"task", t.ID)
+				s.InsertEvent(ctx, t.ID, "output", map[string]string{
+					"result": "Server restarted while task was running. Container is still active — monitoring for completion.",
+				})
+				go monitorContainerUntilStopped(s, r, t.ID)
+			} else {
+				// Container is gone — move to waiting so the user can review
+				// partial results and decide whether to continue or finish.
+				logger.Recovery.Warn("task container gone after restart, moving to waiting",
+					"task", t.ID)
+				s.UpdateTaskStatus(ctx, t.ID, "waiting")
+				s.InsertEvent(ctx, t.ID, "output", map[string]string{
+					"result": "Server restarted while task was running. Container is no longer active — please review the output and decide whether to continue or mark as done.",
+				})
+				s.InsertEvent(ctx, t.ID, "state_change", map[string]string{
+					"from": "in_progress", "to": "waiting",
+				})
+			}
+		}
+	}
+}
+
+// monitorContainerUntilStopped polls the container runtime until the container
+// for taskID is no longer running, then transitions the task from in_progress
+// to waiting so the user can decide what to do next.
+func monitorContainerUntilStopped(s *store.Store, r *runner.Runner, taskID uuid.UUID) {
+	ctx := context.Background()
+	containerName := "wallfacer-" + taskID.String()
+	ticker := time.NewTicker(containerPollInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		containers, err := r.ListContainers()
+		if err != nil {
+			logger.Recovery.Warn("monitor: list containers error", "task", taskID, "error", err)
 			continue
 		}
-		logger.Recovery.Warn("task was interrupted at startup, marking as failed",
-			"task", t.ID, "status", t.Status)
+		running := false
+		for _, c := range containers {
+			if c.Name == containerName && c.State == "running" {
+				running = true
+				break
+			}
+		}
+		if running {
+			continue
+		}
 
-		s.UpdateTaskStatus(ctx, t.ID, "failed")
-		s.InsertEvent(ctx, t.ID, "error", map[string]string{
-			"error": "server restarted while task was " + t.Status,
+		// Container stopped — move the task to waiting if it is still in_progress.
+		cur, getErr := s.GetTask(ctx, taskID)
+		if getErr != nil || cur == nil {
+			return
+		}
+		if cur.Status != "in_progress" {
+			// Task was already transitioned by another path (e.g. cancelled).
+			return
+		}
+		logger.Recovery.Info("monitored container stopped, moving task to waiting", "task", taskID)
+		s.UpdateTaskStatus(ctx, taskID, "waiting")
+		s.InsertEvent(ctx, taskID, "output", map[string]string{
+			"result": "Container has stopped. Please review the output and decide whether to continue or mark as done.",
 		})
-		s.InsertEvent(ctx, t.ID, "state_change", map[string]string{
-			"from": t.Status, "to": "failed",
+		s.InsertEvent(ctx, taskID, "state_change", map[string]string{
+			"from": "in_progress", "to": "waiting",
 		})
+		return
 	}
 }
