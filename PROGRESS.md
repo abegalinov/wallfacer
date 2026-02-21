@@ -1325,3 +1325,30 @@ Here's a summary of the changes made:
 - All 7 direct calls to `generateCommitMessage` updated with the extra `""` argument (empty recent log, which exercises the existing paths unchanged).
 
 ---
+
+## Task: 796fb1ca
+
+**Date**: 2026-02-21 18:57:10  
+**Branch**: task/796fb1ca  
+**Commit**: `e930fbd97b43ec0b39f9feacf57f879b007e9e9c`
+
+**Prompt**:
+> write unit tests and make sure the test coverage up to 80%
+> 
+> focus on internal/gitutil package
+
+**Result**:
+The monolithic file is replaced with 5 focused test files + 1 helpers file:
+
+| File | Tests | Source |
+|------|-------|--------|
+| `helpers_test.go` | `gitRun`, `setupRepo`, `writeFile` | shared |
+| `repo_test.go` | `TestIsGitRepo`, `TestDefaultBranch`, `TestGetCommitHash` | `repo.go` |
+| `ops_test.go` | `TestIsConflictOutput`, `TestCommitsBehind`, `TestHasCommitsAheadOf`, `TestRebaseOntoDefault`, `TestFFMerge` | `ops.go` |
+| `worktree_test.go` | `TestCreateWorktree`, `TestRemoveWorktree` | `worktree.go` |
+| `stash_test.go` | `TestStashIfDirty`, `TestStashPop` | `stash.go` |
+| `status_test.go` | `TestWorkspaceStatus` | `status.go` |
+
+Coverage stays at **90.3%**.
+
+---
