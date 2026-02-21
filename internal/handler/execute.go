@@ -79,8 +79,18 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request, id uuid.U
 		})
 		sessionID := *task.SessionID
 		go func() {
-			h.runner.Commit(id, sessionID)
 			bgCtx := context.Background()
+			if err := h.runner.Commit(id, sessionID); err != nil {
+				h.store.UpdateTaskStatus(bgCtx, id, "failed")
+				h.store.InsertEvent(bgCtx, id, "error", map[string]string{
+					"error": "commit failed: " + err.Error(),
+				})
+				h.store.InsertEvent(bgCtx, id, "state_change", map[string]string{
+					"from": "committing",
+					"to":   "failed",
+				})
+				return
+			}
 			h.store.UpdateTaskStatus(bgCtx, id, "done")
 			h.store.InsertEvent(bgCtx, id, "state_change", map[string]string{
 				"from": "committing",

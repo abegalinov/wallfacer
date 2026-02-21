@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"changkun.de/wallfacer/internal/store"
@@ -95,6 +96,7 @@ type Runner struct {
 	workspaces       string
 	worktreesDir     string
 	instructionsPath string
+	repoMu           sync.Map // per-repo *sync.Mutex for serializing rebase+merge
 }
 
 // NewRunner constructs a Runner from the given store and config.
@@ -121,6 +123,13 @@ func (r *Runner) Workspaces() []string {
 		return nil
 	}
 	return strings.Fields(r.workspaces)
+}
+
+// repoLock returns a per-repo mutex, creating one on first access.
+// Used to serialize rebase+merge operations on the same repository.
+func (r *Runner) repoLock(repoPath string) *sync.Mutex {
+	v, _ := r.repoMu.LoadOrStore(repoPath, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 // KillContainer sends a kill signal to the running container for a task.

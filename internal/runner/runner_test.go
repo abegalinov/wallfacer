@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1133,5 +1134,146 @@ func TestParallelWorktreeIsolation(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(repo, "secret_b.txt")); err == nil {
 		t.Fatal("secret_b.txt should NOT be visible in main repo before merge")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent commit tests
+// ---------------------------------------------------------------------------
+
+// TestConcurrentCompleteTaskSameRepo verifies that two tasks on the same repo,
+// when committed concurrently via goroutines, both get their changes merged
+// into the default branch with linear history and no merge commits.
+func TestConcurrentCompleteTaskSameRepo(t *testing.T) {
+	repo := setupTestRepo(t)
+	s, runner := setupTestRunner(t, []string{repo})
+	ctx := context.Background()
+
+	// Create two tasks.
+	taskA, err := s.CreateTask(ctx, "Concurrent file A", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskB, err := s.CreateTask(ctx, "Concurrent file B", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up worktrees for both (branching from the same HEAD).
+	wtA, brA, err := runner.setupWorktrees(taskA.ID)
+	if err != nil {
+		t.Fatal("setup worktree A:", err)
+	}
+	if err := s.UpdateTaskWorktrees(ctx, taskA.ID, wtA, brA); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskStatus(ctx, taskA.ID, "committing"); err != nil {
+		t.Fatal(err)
+	}
+
+	wtB, brB, err := runner.setupWorktrees(taskB.ID)
+	if err != nil {
+		t.Fatal("setup worktree B:", err)
+	}
+	if err := s.UpdateTaskWorktrees(ctx, taskB.ID, wtB, brB); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskStatus(ctx, taskB.ID, "committing"); err != nil {
+		t.Fatal(err)
+	}
+
+	pathA := wtA[repo]
+	pathB := wtB[repo]
+
+	// Simulate non-conflicting changes in each worktree.
+	if err := os.WriteFile(filepath.Join(pathA, "concA.txt"), []byte("from concurrent A\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pathB, "concB.txt"), []byte("from concurrent B\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Commit both concurrently.
+	commitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	var errA, errB error
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		errA = runner.commit(commitCtx, taskA.ID, "", 1, wtA, brA)
+	}()
+	go func() {
+		defer wg.Done()
+		errB = runner.commit(commitCtx, taskB.ID, "", 1, wtB, brB)
+	}()
+	wg.Wait()
+
+	if errA != nil {
+		t.Fatalf("commit A failed: %v", errA)
+	}
+	if errB != nil {
+		t.Fatalf("commit B failed: %v", errB)
+	}
+
+	// Verify both files exist on main.
+	for _, f := range []string{"concA.txt", "concB.txt"} {
+		if _, err := os.Stat(filepath.Join(repo, f)); err != nil {
+			t.Fatalf("%s should exist on main: %v", f, err)
+		}
+	}
+
+	// Verify linear history (no merge commits).
+	mergeCount := gitRun(t, repo, "rev-list", "--merges", "--count", "HEAD")
+	if mergeCount != "0" {
+		t.Fatalf("expected 0 merge commits (all fast-forward), got %s", mergeCount)
+	}
+}
+
+// TestConcurrentCompleteTaskCommitErrorPropagated verifies that when Commit
+// fails (e.g., due to a conflict that can't be resolved), the error is returned
+// and not silently swallowed.
+func TestConcurrentCompleteTaskCommitErrorPropagated(t *testing.T) {
+	repo := setupTestRepo(t)
+	s, runner := setupTestRunner(t, []string{repo})
+	ctx := context.Background()
+
+	task, err := s.CreateTask(ctx, "Conflict task", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wtPaths, brName, err := runner.setupWorktrees(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, wtPaths, brName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := wtPaths[repo]
+
+	// Modify README.md in the worktree (task branch).
+	if err := os.WriteFile(filepath.Join(wt, "README.md"), []byte("# Task version\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Also modify README.md on main with conflicting content.
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# Main version\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "conflicting change on main")
+
+	// The commit pipeline should fail because the rebase will encounter a
+	// conflict that the test runner can't resolve (no container available).
+	commitErr := runner.Commit(task.ID, "")
+
+	if commitErr == nil {
+		t.Fatal("expected Commit to return an error for conflicting changes, got nil")
 	}
 }

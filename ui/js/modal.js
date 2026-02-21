@@ -355,12 +355,15 @@ async function openModal(id) {
         detail = `"${escapeHtml(data.message)}"`;
       } else if (e.event_type === 'output') {
         detail = `stop_reason: ${data.stop_reason || '(none)'}`;
+      } else if (e.event_type === 'system') {
+        detail = escapeHtml(data.result || '');
       } else if (e.event_type === 'error') {
         detail = escapeHtml(data.error);
       }
       const typeClasses = {
         state_change: 'ev-state',
         output: 'ev-output',
+        system: 'ev-system',
         feedback: 'ev-feedback',
         error: 'ev-error',
       };

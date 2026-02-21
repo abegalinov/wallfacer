@@ -151,10 +151,12 @@ h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
 /* --- Event type colors --- */
 .ev-state { color: #3a6db3; }
 .ev-output { color: #28804a; }
+.ev-system { color: #7a6a90; }
 .ev-feedback { color: #a07020; }
 .ev-error { color: #b02828; }
 [data-theme="dark"] .ev-state { color: #6da0dc; }
 [data-theme="dark"] .ev-output { color: #45b87a; }
+[data-theme="dark"] .ev-system { color: #a090c0; }
 [data-theme="dark"] .ev-feedback { color: #d4a030; }
 [data-theme="dark"] .ev-error { color: #d46868; }
 
