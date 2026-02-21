@@ -1527,3 +1527,21 @@ All changes are in place. Here's a summary of what was done:
   - **Modals**: bottom-sheet style (anchor to bottom, rounded top ...
 
 ---
+
+## Task: c5dc2c22
+
+**Date**: 2026-02-21 20:48:52  
+**Branch**: task/c5dc2c22  
+**Commit**: `2b43231f5f047c8a30f303ee2e69bda0ef89962f`
+
+**Prompt**:
+> sandbox container panel shows this error
+> 
+> ReferenceError: escapeHTML is not defined
+> 
+> pls fix
+
+**Result**:
+`containers.js` was calling `escapeHTML` but `utils.js` defines `escapeHtml` (lowercase `tml`). Fixed all 7 call sites in `containers.js` to use the correct name.
+
+---
