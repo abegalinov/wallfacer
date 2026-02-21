@@ -1499,3 +1499,31 @@ So with 3 turns you'd now see:
 ```
 
 ---
+
+## Task: cc5fe2c1
+
+**Date**: 2026-02-21 20:45:37  
+**Branch**: task/cc5fe2c1  
+**Commit**: `b4d0b8051c52cf166d791f3674743c140fe76083`
+
+**Prompt**:
+> the current kanban UI doesn't seem to support mobile mode. Update the UI styling (layout, css, etc) to support mobile mode (narrow screen)
+
+**Result**:
+All changes are in place. Here's a summary of what was done:
+
+**`ui/index.html`**
+- Replaced `grid grid-cols-5 gap-4 p-6` on `<main>` with the custom `board-grid` class (desktop grid layout is now defined in CSS, making it overridable)
+- Added `id="col-wrapper-{name}"` to each of the 5 column wrapper `<div>`s
+- Added a `<nav id="mobile-col-nav">` between the header and main with one pill button per column
+
+**`ui/css/styles.css`**
+- Defined `.board-grid` as a 5-column CSS grid (desktop behaviour, unchanged)
+- Added `@media (max-width: 768px)` block with:
+  - **Board**: switches to horizontal flex scroll with CSS scroll-snap, each column takes ~`100vw - 48px` so the next column is slightly visible as a swipe hint
+  - **Mobile nav**: displayed as a scrollable pill row above the board; hidden on desktop
+  - **Header**: tighter padding, workspace list capped to prevent overflow
+  - **Settings panel**: bounded within viewport
+  - **Modals**: bottom-sheet style (anchor to bottom, rounded top ...
+
+---
