@@ -2,3 +2,4 @@
 data/
 wallfacer
 .claude/settings.local.json
+coverage.out
