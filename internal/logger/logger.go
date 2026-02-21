@@ -1,4 +1,4 @@
-package main
+package logger
 
 import (
 	"context"
@@ -10,23 +10,25 @@ import (
 	"sync"
 )
 
-// Package-level loggers; initialized by initLogger (called from init).
+// Package-level named loggers, populated by Init.
+// Each component that needs structured logging imports this package and
+// references the appropriate var directly (e.g. logger.Runner.Info(...)).
 var (
-	logMain     *slog.Logger
-	logRunner   *slog.Logger
-	logStore    *slog.Logger
-	logGit      *slog.Logger
-	logHandler  *slog.Logger
-	logRecovery *slog.Logger
+	Main     *slog.Logger
+	Runner   *slog.Logger
+	Store    *slog.Logger
+	Git      *slog.Logger
+	Handler  *slog.Logger
+	Recovery *slog.Logger
 )
 
 func init() {
-	initLogger("text")
+	Init("text")
 }
 
-// initLogger configures the package-level loggers.
+// Init configures all named loggers.
 // format is "text" (colored, human-friendly) or "json" (structured JSON).
-func initLogger(format string) {
+func Init(format string) {
 	opts := &slog.HandlerOptions{Level: slog.LevelDebug}
 	var h slog.Handler
 	if format == "json" {
@@ -35,16 +37,16 @@ func initLogger(format string) {
 		h = newPrettyHandler(os.Stdout, opts)
 	}
 	base := slog.New(h)
-	logMain = base.With("component", "main")
-	logRunner = base.With("component", "runner")
-	logStore = base.With("component", "store")
-	logGit = base.With("component", "git")
-	logHandler = base.With("component", "handler")
-	logRecovery = base.With("component", "recovery")
+	Main = base.With("component", "main")
+	Runner = base.With("component", "runner")
+	Store = base.With("component", "store")
+	Git = base.With("component", "git")
+	Handler = base.With("component", "handler")
+	Recovery = base.With("component", "recovery")
 }
 
-// fatal logs at error level and exits with code 1.
-func fatal(l *slog.Logger, msg string, args ...any) {
+// Fatal logs at error level and exits with code 1.
+func Fatal(l *slog.Logger, msg string, args ...any) {
 	l.Error(msg, args...)
 	os.Exit(1)
 }
@@ -177,7 +179,6 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 		b.WriteString(col(ansiDim, "  │"))
 		for _, a := range extra {
 			b.WriteString("  ")
-			// dim key= so that values are the visual focus.
 			b.WriteString(col(ansiDim, a.Key+"="))
 			v := prettyValue(a.Value.Resolve())
 			if a.Key == "error" {
@@ -199,8 +200,6 @@ func (h *prettyHandler) Handle(_ context.Context, r slog.Record) error {
 // prettyValue formats a slog.Value for display.
 // UUID-formatted strings are shortened to their first 8 characters.
 // Very long strings are truncated at 200 characters to keep lines readable.
-// String values that contain whitespace, quotes, or '=' are quoted so that
-// multi-word values cannot be mistaken for separate key=value tokens.
 func prettyValue(v slog.Value) string {
 	var s string
 	if v.Kind() == slog.KindString {
@@ -208,11 +207,9 @@ func prettyValue(v slog.Value) string {
 	} else {
 		s = fmt.Sprintf("%v", v.Any())
 	}
-	// Shorten UUID-formatted values to first 8 chars for readability.
 	if isUUID(s) {
 		return s[:8]
 	}
-	// Truncate very long values so error messages don't flood the terminal.
 	const maxLen = 200
 	if len(s) > maxLen {
 		s = s[:maxLen] + "…"
@@ -223,8 +220,7 @@ func prettyValue(v slog.Value) string {
 	return s
 }
 
-// isUUID reports whether s has the canonical UUID string format
-// (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx, 36 chars).
+// isUUID reports whether s has the canonical UUID string format (36 chars).
 func isUUID(s string) bool {
 	if len(s) != 36 {
 		return false

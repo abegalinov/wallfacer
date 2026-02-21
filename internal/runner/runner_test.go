@@ -1,4 +1,4 @@
-package main
+package runner
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"changkun.de/wallfacer/internal/store"
 	"github.com/google/uuid"
 )
 
@@ -49,29 +50,183 @@ func setupTestRepo(t *testing.T) string {
 
 // setupTestRunner creates a Store and Runner for testing.
 // The container command is a dummy since we're testing host-side operations.
-func setupTestRunner(t *testing.T, workspaces []string) (*Store, *Runner) {
+func setupTestRunner(t *testing.T, workspaces []string) (*store.Store, *Runner) {
 	t.Helper()
 	dataDir := t.TempDir()
-	store, err := NewStore(dataDir)
+	s, err := store.NewStore(dataDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { store.Close() })
+	t.Cleanup(func() { s.Close() })
 
 	worktreesDir := filepath.Join(t.TempDir(), "worktrees")
 	if err := os.MkdirAll(worktreesDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	runner := NewRunner(store, RunnerConfig{
+	runner := NewRunner(s, RunnerConfig{
 		Command:      "echo", // dummy — not used for host-side operations
 		SandboxImage: "test:latest",
 		EnvFile:      "",
 		Workspaces:   strings.Join(workspaces, " "),
 		WorktreesDir: worktreesDir,
 	})
-	return store, runner
+	return s, runner
 }
+
+// newTestRunnerWithInstructions creates a Runner whose instructionsPath points
+// to the given path (may or may not exist on disk).
+func newTestRunnerWithInstructions(t *testing.T, instructionsPath string) *Runner {
+	t.Helper()
+	dataDir := t.TempDir()
+	s, err := store.NewStore(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return NewRunner(s, RunnerConfig{
+		Command:          "podman",
+		SandboxImage:     "wallfacer:latest",
+		InstructionsPath: instructionsPath,
+	})
+}
+
+// containsConsecutive returns true if slice contains needle1 immediately
+// followed by needle2.
+func containsConsecutive(slice []string, needle1, needle2 string) bool {
+	for i := 0; i+1 < len(slice); i++ {
+		if slice[i] == needle1 && slice[i+1] == needle2 {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// Runner.buildContainerArgs — CLAUDE.md mount
+// ---------------------------------------------------------------------------
+
+// TestContainerArgsMountsCLAUDEMD verifies that when instructionsPath is set
+// and the file exists, buildContainerArgs includes a read-only volume mount
+// that places it at /workspace/CLAUDE.md inside the container.
+func TestContainerArgsMountsCLAUDEMD(t *testing.T) {
+	instructionsFile := filepath.Join(t.TempDir(), "instructions.md")
+	if err := os.WriteFile(instructionsFile, []byte("# test instructions\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := newTestRunnerWithInstructions(t, instructionsFile)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+
+	expectedMount := instructionsFile + ":/workspace/CLAUDE.md:z,ro"
+	if !containsConsecutive(args, "-v", expectedMount) {
+		t.Fatalf("args should contain -v %q; got: %v", expectedMount, args)
+	}
+}
+
+// TestContainerArgsNoInstructionsPath verifies that when InstructionsPath is
+// empty no CLAUDE.md mount is added to the container args.
+func TestContainerArgsNoInstructionsPath(t *testing.T) {
+	runner := newTestRunnerWithInstructions(t, "")
+	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+
+	for _, a := range args {
+		if strings.Contains(a, "CLAUDE.md") {
+			t.Fatalf("expected no CLAUDE.md mount when InstructionsPath is empty; got arg: %q", a)
+		}
+	}
+}
+
+// TestContainerArgsMissingInstructionsFile verifies that when instructionsPath
+// is set but the file does not exist, no CLAUDE.md mount is added (the runner
+// silently skips a missing file rather than failing the container launch).
+func TestContainerArgsMissingInstructionsFile(t *testing.T) {
+	missingPath := filepath.Join(t.TempDir(), "nonexistent.md")
+	runner := newTestRunnerWithInstructions(t, missingPath)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+
+	for _, a := range args {
+		if strings.Contains(a, "CLAUDE.md") {
+			t.Fatalf("expected no CLAUDE.md mount for missing file; got arg: %q", a)
+		}
+	}
+}
+
+// TestContainerArgsCLAUDEMDMountIsReadOnly verifies the mount is marked :ro
+// so the container cannot accidentally modify the shared instructions file.
+func TestContainerArgsCLAUDEMDMountIsReadOnly(t *testing.T) {
+	instructionsFile := filepath.Join(t.TempDir(), "instructions.md")
+	if err := os.WriteFile(instructionsFile, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := newTestRunnerWithInstructions(t, instructionsFile)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+
+	for i, a := range args {
+		if a == "-v" && i+1 < len(args) && strings.Contains(args[i+1], "CLAUDE.md") {
+			mount := args[i+1]
+			// Accept both ":ro" and ",ro" (SELinux label adds ":z,ro").
+			if !strings.HasSuffix(mount, ":ro") && !strings.HasSuffix(mount, ",ro") {
+				t.Fatalf("CLAUDE.md mount should be read-only, got: %q", mount)
+			}
+			return
+		}
+	}
+	t.Fatal("CLAUDE.md -v mount not found in args")
+}
+
+// TestContainerArgsCLAUDEMDMountPosition verifies that the CLAUDE.md mount
+// appears before the image name in the args list, matching the expected
+// container launch order.
+func TestContainerArgsCLAUDEMDMountPosition(t *testing.T) {
+	instructionsFile := filepath.Join(t.TempDir(), "instructions.md")
+	if err := os.WriteFile(instructionsFile, []byte("content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := t.TempDir()
+	dataDir := t.TempDir()
+	s, err := store.NewStore(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	runner := NewRunner(s, RunnerConfig{
+		Command:          "podman",
+		SandboxImage:     "wallfacer:latest",
+		InstructionsPath: instructionsFile,
+		Workspaces:       ws,
+	})
+	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+
+	claudeMDIdx := -1
+	imageIdx := -1
+	for i, a := range args {
+		if strings.Contains(a, "CLAUDE.md") {
+			claudeMDIdx = i
+		}
+		if a == "wallfacer:latest" {
+			imageIdx = i
+		}
+	}
+
+	if claudeMDIdx == -1 {
+		t.Fatal("CLAUDE.md mount not found in args")
+	}
+	if imageIdx == -1 {
+		t.Fatal("sandbox image not found in args")
+	}
+	if claudeMDIdx >= imageIdx {
+		t.Fatalf("CLAUDE.md mount (index %d) should appear before sandbox image (index %d)",
+			claudeMDIdx, imageIdx)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Worktree management
+// ---------------------------------------------------------------------------
 
 // TestWorktreeSetup verifies that worktree creation works: correct branch,
 // correct directory structure, files inherited from the parent repo.
@@ -145,13 +300,6 @@ func TestWorktreeGitFilePointsToHost(t *testing.T) {
 		t.Fatal("expected absolute path in .git file, got:", gitdirPath)
 	}
 
-	// The path should reference the main repo's .git directory.
-	if !strings.Contains(gitdirPath, repo) {
-		// The gitdir path should be under the main repo's .git/worktrees/ directory.
-		// On some systems the repo path may be a symlink, so let's at least verify
-		// the path exists on the host.
-	}
-
 	// Verify the path exists on the host.
 	if _, err := os.Stat(gitdirPath); err != nil {
 		t.Fatal("gitdir path should exist on host:", err)
@@ -217,17 +365,21 @@ func TestHostStageAndCommitNoChanges(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Commit pipeline
+// ---------------------------------------------------------------------------
+
 // TestCommitPipelineBasic tests the full commit pipeline (Phase 1-4):
 // host commit → rebase → ff-merge → PROGRESS.md → cleanup.
 func TestCommitPipelineBasic(t *testing.T) {
 	repo := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repo})
+	s, runner := setupTestRunner(t, []string{repo})
 
 	initialHash := gitRun(t, repo, "rev-parse", "HEAD")
 
 	// Create a task.
 	ctx := context.Background()
-	task, err := store.CreateTask(ctx, "Add a greeting file", 5)
+	task, err := s.CreateTask(ctx, "Add a greeting file", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,10 +389,10 @@ func TestCommitPipelineBasic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -288,10 +440,10 @@ func TestCommitPipelineBasic(t *testing.T) {
 // rebased on top of the latest default branch.
 func TestCommitPipelineDivergedBranch(t *testing.T) {
 	repo := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repo})
+	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
-	task, err := store.CreateTask(ctx, "Add feature", 5)
+	task, err := s.CreateTask(ctx, "Add feature", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,10 +453,10 @@ func TestCommitPipelineDivergedBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -337,11 +489,6 @@ func TestCommitPipelineDivergedBranch(t *testing.T) {
 	// Verify the task commit is on top of the other commit.
 	log := gitRun(t, repo, "log", "--oneline")
 	lines := strings.Split(log, "\n")
-	// Expected order (newest first):
-	//   PROGRESS.md commit
-	//   wallfacer: task commit
-	//   other change on main
-	//   initial commit
 	if len(lines) < 3 {
 		t.Fatalf("expected at least 3 commits, got %d:\n%s", len(lines), log)
 	}
@@ -352,10 +499,10 @@ func TestCommitPipelineDivergedBranch(t *testing.T) {
 // any merge commits (only PROGRESS.md may be updated).
 func TestCommitPipelineNoChanges(t *testing.T) {
 	repo := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repo})
+	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
-	task, err := store.CreateTask(ctx, "No changes task", 5)
+	task, err := s.CreateTask(ctx, "No changes task", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,10 +511,10 @@ func TestCommitPipelineNoChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -396,12 +543,12 @@ func TestCommitPipelineNoChanges(t *testing.T) {
 //  4. Verify that the changes end up on the default branch
 func TestCompleteTaskE2E(t *testing.T) {
 	repo := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repo})
+	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
 
 	// Step 1: Create the task.
-	task, err := store.CreateTask(ctx, "Add greeting feature", 5)
+	task, err := s.CreateTask(ctx, "Add greeting feature", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,15 +558,15 @@ func TestCompleteTaskE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, task.ID, "in_progress"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "in_progress"); err != nil {
 		t.Fatal(err)
 	}
 	sessionID := "test-session-123"
 	result := "I created the greeting feature"
-	if err := store.UpdateTaskResult(ctx, task.ID, result, sessionID, "", 1); err != nil {
+	if err := s.UpdateTaskResult(ctx, task.ID, result, sessionID, "", 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -430,12 +577,12 @@ func TestCompleteTaskE2E(t *testing.T) {
 	}
 
 	// Step 4: Task goes to waiting (Claude needs feedback).
-	if err := store.UpdateTaskStatus(ctx, task.ID, "waiting"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "waiting"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Step 5: User clicks "Mark as Done" — this triggers Commit.
-	if err := store.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -473,10 +620,10 @@ func TestCompleteTaskE2E(t *testing.T) {
 // was created. This is critical for maintaining a clean linear history.
 func TestCommitOnTopOfLatestMain(t *testing.T) {
 	repo := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repo})
+	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
-	task, err := store.CreateTask(ctx, "Task on stale branch", 5)
+	task, err := s.CreateTask(ctx, "Task on stale branch", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,10 +633,10 @@ func TestCommitOnTopOfLatestMain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -521,7 +668,6 @@ func TestCommitOnTopOfLatestMain(t *testing.T) {
 	runner.commit(commitCtx, task.ID, "", 1, worktreePaths, branchName)
 
 	// Verify the task commit is a descendant of the latest main.
-	// git merge-base --is-ancestor checks if mainHashBefore is an ancestor of HEAD.
 	if _, err := gitRunMayFail(repo, "merge-base", "--is-ancestor", mainHashBefore, "HEAD"); err != nil {
 		t.Fatal("task commit should be on top of latest main (rebase should have applied)")
 	}
@@ -539,15 +685,15 @@ func TestCommitOnTopOfLatestMain(t *testing.T) {
 // main in sequence. The second task to merge must rebase on top of the first.
 func TestParallelTasksSameRepo(t *testing.T) {
 	repo := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repo})
+	s, runner := setupTestRunner(t, []string{repo})
 	ctx := context.Background()
 
 	// Create two tasks.
-	taskA, err := store.CreateTask(ctx, "Add file A", 5)
+	taskA, err := s.CreateTask(ctx, "Add file A", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskB, err := store.CreateTask(ctx, "Add file B", 5)
+	taskB, err := s.CreateTask(ctx, "Add file B", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,10 +703,10 @@ func TestParallelTasksSameRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal("setup worktree A:", err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, taskA.ID, wtA, brA); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, taskA.ID, wtA, brA); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, taskA.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, taskA.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -568,10 +714,10 @@ func TestParallelTasksSameRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal("setup worktree B:", err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, taskB.ID, wtB, brB); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, taskB.ID, wtB, brB); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, taskB.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, taskB.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -613,12 +759,6 @@ func TestParallelTasksSameRepo(t *testing.T) {
 	// Verify linear history: B's commit is on top of A's.
 	log := gitRun(t, repo, "log", "--oneline")
 	lines := strings.Split(log, "\n")
-	// Expected (newest first):
-	//   progress log for task B
-	//   wallfacer: Add file B
-	//   progress log for task A
-	//   wallfacer: Add file A
-	//   initial commit
 	if len(lines) < 4 {
 		t.Fatalf("expected at least 4 commits for two tasks, got %d:\n%s", len(lines), log)
 	}
@@ -636,10 +776,10 @@ func TestParallelTasksSameRepo(t *testing.T) {
 func TestParallelTasksTwoRepos(t *testing.T) {
 	repoX := setupTestRepo(t)
 	repoY := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repoX, repoY})
+	s, runner := setupTestRunner(t, []string{repoX, repoY})
 	ctx := context.Background()
 
-	task, err := store.CreateTask(ctx, "Change both repos", 5)
+	task, err := s.CreateTask(ctx, "Change both repos", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -648,10 +788,10 @@ func TestParallelTasksTwoRepos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, task.ID, wtPaths, brName); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, wtPaths, brName); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -692,14 +832,14 @@ func TestParallelTasksTwoRepos(t *testing.T) {
 // task's changes (no data loss).
 func TestParallelTasksConflictingChanges(t *testing.T) {
 	repo := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repo})
+	s, runner := setupTestRunner(t, []string{repo})
 	ctx := context.Background()
 
-	taskA, err := store.CreateTask(ctx, "Add line to README", 5)
+	taskA, err := s.CreateTask(ctx, "Add line to README", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskB, err := store.CreateTask(ctx, "Add another line to README", 5)
+	taskB, err := s.CreateTask(ctx, "Add another line to README", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -708,10 +848,10 @@ func TestParallelTasksConflictingChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, taskA.ID, wtA, brA); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, taskA.ID, wtA, brA); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, taskA.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, taskA.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -719,10 +859,10 @@ func TestParallelTasksConflictingChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, taskB.ID, wtB, brB); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, taskB.ID, wtB, brB); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.UpdateTaskStatus(ctx, taskB.ID, "committing"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, taskB.ID, "committing"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -851,14 +991,12 @@ func TestSetupWorktreesRecreatesMissingDir(t *testing.T) {
 // TestRunDetectsMissingWorktreePaths verifies the runner.go fix: when a task's
 // stored WorktreePaths point to directories that no longer exist on disk,
 // setupWorktrees is called again to recreate them, and the task can proceed.
-// This reproduces: "container exited with code 125: statfs … no such file or
-// directory" that happened on feedback submission after a server restart.
 func TestRunDetectsMissingWorktreePaths(t *testing.T) {
 	repo := setupTestRepo(t)
-	store, runner := setupTestRunner(t, []string{repo})
+	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
-	task, err := store.CreateTask(ctx, "Test feedback resume", 5)
+	task, err := s.CreateTask(ctx, "Test feedback resume", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -868,7 +1006,7 @@ func TestRunDetectsMissingWorktreePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal("initial setupWorktrees:", err)
 	}
-	if err := store.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
 		t.Fatal(err)
 	}
 
@@ -883,7 +1021,7 @@ func TestRunDetectsMissingWorktreePaths(t *testing.T) {
 	commitOnBranch := gitRun(t, wt, "rev-parse", "HEAD")
 
 	// Task goes to waiting; worktree directory is still on disk at this point.
-	if err := store.UpdateTaskStatus(ctx, task.ID, "waiting"); err != nil {
+	if err := s.UpdateTaskStatus(ctx, task.ID, "waiting"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -894,7 +1032,7 @@ func TestRunDetectsMissingWorktreePaths(t *testing.T) {
 	}
 
 	// Reload the task from the store to confirm WorktreePaths is still set.
-	reloaded, err := store.GetTask(ctx, task.ID)
+	reloaded, err := s.GetTask(ctx, task.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -997,4 +1135,3 @@ func TestParallelWorktreeIsolation(t *testing.T) {
 		t.Fatal("secret_b.txt should NOT be visible in main repo before merge")
 	}
 }
-

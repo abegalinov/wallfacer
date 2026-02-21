@@ -1,25 +1,15 @@
 package main
 
 import (
-	"context"
-	"embed"
-	"flag"
 	"fmt"
-	fsLib "io/fs"
-	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
+	"changkun.de/wallfacer/internal/logger"
 )
-
-//go:embed ui
-var uiFiles embed.FS
 
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "Usage: wallfacer <command> [arguments]\n\n")
@@ -32,7 +22,7 @@ func printUsage() {
 func main() {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fatal(logMain, "home dir", "error", err)
+		logger.Fatal(logger.Main, "home dir", "error", err)
 	}
 	configDir := filepath.Join(home, ".wallfacer")
 
@@ -55,264 +45,6 @@ func main() {
 	}
 }
 
-func runServer(configDir string, args []string) {
-	fs := flag.NewFlagSet("run", flag.ExitOnError)
-
-	logFormat := fs.String("log-format", envOrDefault("LOG_FORMAT", "text"), `log output format: "text" (colored, human-friendly) or "json" (structured JSON for log aggregators)`)
-	addr := fs.String("addr", envOrDefault("ADDR", ":8080"), "listen address")
-	dataDir := fs.String("data", envOrDefault("DATA_DIR", filepath.Join(configDir, "data")), "data directory")
-	containerCmd := fs.String("container", envOrDefault("CONTAINER_CMD", "/opt/podman/bin/podman"), "container runtime command")
-	sandboxImage := fs.String("image", envOrDefault("SANDBOX_IMAGE", "wallfacer:latest"), "sandbox container image")
-	envFile := fs.String("env-file", envOrDefault("ENV_FILE", filepath.Join(configDir, ".env")), "env file for container (Claude token)")
-	noBrowser := fs.Bool("no-browser", false, "do not open browser on start")
-
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: wallfacer run [flags] [workspace ...]\n\n")
-		fmt.Fprintf(os.Stderr, "Start the Kanban server and open the web UI.\n\n")
-		fmt.Fprintf(os.Stderr, "Positional arguments:\n")
-		fmt.Fprintf(os.Stderr, "  workspace    directories to mount in the sandbox (default: current directory)\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
-		fs.PrintDefaults()
-	}
-	fs.Parse(args)
-
-	// Re-initialize loggers with the format chosen by the user.
-	initLogger(*logFormat)
-
-	// Auto-initialize config directory and .env template.
-	initConfigDir(configDir, *envFile)
-
-	// Positional args are workspace directories.
-	workspaces := fs.Args()
-	if len(workspaces) == 0 {
-		cwd, err := os.Getwd()
-		if err != nil {
-			fatal(logMain, "getwd", "error", err)
-		}
-		workspaces = []string{cwd}
-	}
-
-	// Resolve to absolute paths and validate.
-	for i, ws := range workspaces {
-		abs, err := filepath.Abs(ws)
-		if err != nil {
-			fatal(logMain, "resolve workspace", "workspace", ws, "error", err)
-		}
-		info, err := os.Stat(abs)
-		if err != nil {
-			fatal(logMain, "workspace", "path", abs, "error", err)
-		}
-		if !info.IsDir() {
-			fatal(logMain, "workspace is not a directory", "path", abs)
-		}
-		workspaces[i] = abs
-	}
-
-	// Scope the data directory to the specific workspace combination so that
-	// running wallfacer on different sets of repos never mixes task history.
-	scopedDataDir := filepath.Join(*dataDir, instructionsKey(workspaces))
-
-	store, err := NewStore(scopedDataDir)
-	if err != nil {
-		fatal(logMain, "store", "error", err)
-	}
-	defer store.Close()
-	logMain.Info("store loaded", "path", scopedDataDir)
-
-	worktreesDir := filepath.Join(configDir, "worktrees")
-	if err := os.MkdirAll(worktreesDir, 0755); err != nil {
-		fatal(logMain, "create worktrees dir", "error", err)
-	}
-
-	instructionsPath, err := ensureWorkspaceInstructions(configDir, workspaces)
-	if err != nil {
-		logMain.Warn("init workspace instructions", "error", err)
-	} else {
-		logMain.Info("workspace instructions", "path", instructionsPath)
-	}
-
-	runner := NewRunner(store, RunnerConfig{
-		Command:          *containerCmd,
-		SandboxImage:     *sandboxImage,
-		EnvFile:          *envFile,
-		Workspaces:       strings.Join(workspaces, " "),
-		WorktreesDir:     worktreesDir,
-		InstructionsPath: instructionsPath,
-	})
-
-	// Clean up any worktree dirs that don't correspond to a known task
-	// (leftover from a crash before the task was persisted with worktree paths).
-	runner.pruneOrphanedWorktrees(store)
-
-	// Recover orphaned in_progress/committing tasks from a previous server crash.
-	recoverOrphanedTasks(store)
-
-	logMain.Info("workspaces", "paths", strings.Join(workspaces, ", "))
-
-	handler := NewHandler(store, runner, configDir, workspaces)
-
-	mux := http.NewServeMux()
-
-	// Static files (Kanban UI)
-	uiFS, _ := fsLib.Sub(uiFiles, "ui")
-	mux.Handle("GET /", http.FileServer(http.FS(uiFS)))
-
-	// API routes
-	mux.HandleFunc("GET /api/config", handler.GetConfig)
-	mux.HandleFunc("GET /api/instructions", handler.GetInstructions)
-	mux.HandleFunc("PUT /api/instructions", handler.UpdateInstructions)
-	mux.HandleFunc("POST /api/instructions/reinit", handler.ReinitInstructions)
-	mux.HandleFunc("GET /api/git/status", handler.GitStatus)
-	mux.HandleFunc("GET /api/git/stream", handler.GitStatusStream)
-	mux.HandleFunc("POST /api/git/push", handler.GitPush)
-	mux.HandleFunc("POST /api/git/sync", handler.GitSyncWorkspace)
-	mux.HandleFunc("GET /api/tasks", handler.ListTasks)
-	mux.HandleFunc("GET /api/tasks/stream", handler.StreamTasks)
-	mux.HandleFunc("POST /api/tasks", handler.CreateTask)
-	mux.HandleFunc("POST /api/tasks/generate-titles", handler.GenerateMissingTitles)
-
-	mux.HandleFunc("PATCH /api/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.UpdateTask(w, r, id)
-	})
-
-	mux.HandleFunc("DELETE /api/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.DeleteTask(w, r, id)
-	})
-
-	mux.HandleFunc("POST /api/tasks/{id}/feedback", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.SubmitFeedback(w, r, id)
-	})
-
-	mux.HandleFunc("GET /api/tasks/{id}/events", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.GetEvents(w, r, id)
-	})
-
-	mux.HandleFunc("POST /api/tasks/{id}/done", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.CompleteTask(w, r, id)
-	})
-
-	mux.HandleFunc("POST /api/tasks/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.CancelTask(w, r, id)
-	})
-
-	mux.HandleFunc("POST /api/tasks/{id}/resume", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.ResumeTask(w, r, id)
-	})
-
-	mux.HandleFunc("POST /api/tasks/{id}/archive", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.ArchiveTask(w, r, id)
-	})
-
-	mux.HandleFunc("POST /api/tasks/{id}/unarchive", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.UnarchiveTask(w, r, id)
-	})
-
-	mux.HandleFunc("GET /api/tasks/{id}/outputs/{filename}", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.ServeOutput(w, r, id, r.PathValue("filename"))
-	})
-
-	mux.HandleFunc("GET /api/tasks/{id}/diff", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.TaskDiff(w, r, id)
-	})
-
-	mux.HandleFunc("POST /api/tasks/{id}/sync", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.SyncTask(w, r, id)
-	})
-
-	mux.HandleFunc("GET /api/tasks/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
-		id, err := uuid.Parse(r.PathValue("id"))
-		if err != nil {
-			http.Error(w, "invalid task id", http.StatusBadRequest)
-			return
-		}
-		handler.StreamLogs(w, r, id)
-	})
-
-	host, _, _ := net.SplitHostPort(*addr)
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
-		logMain.Warn("requested address unavailable, finding free port", "addr", *addr, "error", err)
-		ln, err = net.Listen("tcp", net.JoinHostPort(host, "0"))
-		if err != nil {
-			fatal(logMain, "listen", "error", err)
-		}
-	}
-
-	actualPort := ln.Addr().(*net.TCPAddr).Port
-	if !*noBrowser {
-		browserHost := host
-		if browserHost == "" {
-			browserHost = "localhost"
-		}
-		go openBrowser(fmt.Sprintf("http://%s:%d", browserHost, actualPort))
-	}
-
-	logMain.Info("listening", "addr", ln.Addr().String())
-	if err := http.Serve(ln, loggingMiddleware(mux)); err != nil {
-		fatal(logMain, "server", "error", err)
-	}
-}
-
 func runEnvCheck(configDir string) {
 	envFile := envOrDefault("ENV_FILE", filepath.Join(configDir, ".env"))
 
@@ -323,7 +55,6 @@ func runEnvCheck(configDir string) {
 	fmt.Printf("Sandbox image:     %s\n", envOrDefault("SANDBOX_IMAGE", "wallfacer:latest"))
 	fmt.Println()
 
-	// Check config dir exists.
 	if info, err := os.Stat(configDir); err != nil {
 		fmt.Printf("[!] Config directory does not exist (run 'wallfacer run' to auto-create)\n")
 	} else if !info.IsDir() {
@@ -332,7 +63,6 @@ func runEnvCheck(configDir string) {
 		fmt.Printf("[ok] Config directory exists\n")
 	}
 
-	// Check env file and token.
 	raw, err := os.ReadFile(envFile)
 	if err != nil {
 		fmt.Printf("[!] Env file not found: %s\n", envFile)
@@ -366,7 +96,6 @@ func runEnvCheck(configDir string) {
 		fmt.Printf("[!] CLAUDE_CODE_OAUTH_TOKEN not found in %s\n", envFile)
 	}
 
-	// Check container runtime.
 	containerCmd := envOrDefault("CONTAINER_CMD", "/opt/podman/bin/podman")
 	if _, err := exec.LookPath(containerCmd); err != nil {
 		fmt.Printf("[!] Container runtime not found: %s\n", containerCmd)
@@ -377,15 +106,15 @@ func runEnvCheck(configDir string) {
 
 func initConfigDir(configDir, envFile string) {
 	if err := os.MkdirAll(configDir, 0755); err != nil {
-		fatal(logMain, "create config dir", "error", err)
+		logger.Fatal(logger.Main, "create config dir", "error", err)
 	}
 
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
 		content := "CLAUDE_CODE_OAUTH_TOKEN=your-oauth-token-here\n"
 		if err := os.WriteFile(envFile, []byte(content), 0600); err != nil {
-			fatal(logMain, "create env file", "error", err)
+			logger.Fatal(logger.Main, "create env file", "error", err)
 		}
-		logMain.Info("created env file — edit it and set your CLAUDE_CODE_OAUTH_TOKEN", "path", envFile)
+		logger.Main.Info("created env file — edit it and set your CLAUDE_CODE_OAUTH_TOKEN", "path", envFile)
 	}
 }
 
@@ -409,64 +138,3 @@ func openBrowser(url string) {
 	exec.Command(cmd, url).Start()
 }
 
-// statusResponseWriter wraps http.ResponseWriter to capture the HTTP status code
-// written by the handler, so it can be included in access log entries.
-type statusResponseWriter struct {
-	http.ResponseWriter
-	status int
-}
-
-func (w *statusResponseWriter) WriteHeader(code int) {
-	w.status = code
-	w.ResponseWriter.WriteHeader(code)
-}
-
-func (w *statusResponseWriter) Flush() {
-	if f, ok := w.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// loggingMiddleware logs each HTTP request with method, path, status, and wall-clock
-// duration. API requests are logged at INFO; static-asset requests at DEBUG so they
-// don't drown out application events during normal browsing.
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		sw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
-		next.ServeHTTP(sw, r)
-		dur := time.Since(start).Round(time.Millisecond)
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			logHandler.Info(r.Method+" "+r.URL.Path, "status", sw.status, "dur", dur)
-		} else {
-			logHandler.Debug(r.Method+" "+r.URL.Path, "status", sw.status, "dur", dur)
-		}
-	})
-}
-
-func recoverOrphanedTasks(store *Store) {
-	ctx := context.Background()
-	tasks, err := store.ListTasks(ctx, true)
-	if err != nil {
-		logRecovery.Error("list tasks", "error", err)
-		return
-	}
-	for _, t := range tasks {
-		if t.Status != "in_progress" && t.Status != "committing" {
-			continue
-		}
-		logRecovery.Warn("task was interrupted at startup, marking as failed",
-			"task", t.ID, "status", t.Status)
-
-		// Preserve worktrees so the user can review the diff and potentially
-		// resume. Worktrees are cleaned up later by cancel, retry, or delete.
-
-		store.UpdateTaskStatus(ctx, t.ID, "failed")
-		store.InsertEvent(ctx, t.ID, "error", map[string]string{
-			"error": "server restarted while task was " + t.Status,
-		})
-		store.InsertEvent(ctx, t.ID, "state_change", map[string]string{
-			"from": t.Status, "to": "failed",
-		})
-	}
-}

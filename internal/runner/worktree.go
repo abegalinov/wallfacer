@@ -1,0 +1,123 @@
+package runner
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"changkun.de/wallfacer/internal/gitutil"
+	"changkun.de/wallfacer/internal/logger"
+	"changkun.de/wallfacer/internal/store"
+	"github.com/google/uuid"
+)
+
+// setupWorktrees creates an isolated working directory for each workspace.
+// For git-backed workspaces a proper git worktree is created.
+// For non-git workspaces a snapshot copy is created and tracked with a local
+// git repo so that the same commit pipeline can be used for both cases.
+// Returns (worktreePaths, branchName, error).
+// Idempotent: if the worktree/snapshot directory already exists it is reused.
+func (r *Runner) setupWorktrees(taskID uuid.UUID) (map[string]string, string, error) {
+	branchName := "task/" + taskID.String()[:8]
+	worktreePaths := make(map[string]string)
+
+	for _, ws := range r.Workspaces() {
+		basename := filepath.Base(ws)
+		worktreePath := filepath.Join(r.worktreesDir, taskID.String(), basename)
+
+		// Idempotent: reuse existing worktree/snapshot (e.g. task resumed from waiting).
+		if _, err := os.Stat(worktreePath); err == nil {
+			worktreePaths[ws] = worktreePath
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+			r.cleanupWorktrees(taskID, worktreePaths, branchName)
+			return nil, "", fmt.Errorf("mkdir worktree parent: %w", err)
+		}
+
+		if gitutil.IsGitRepo(ws) {
+			if err := gitutil.CreateWorktree(ws, worktreePath, branchName); err != nil {
+				r.cleanupWorktrees(taskID, worktreePaths, branchName)
+				return nil, "", fmt.Errorf("createWorktree for %s: %w", ws, err)
+			}
+		} else {
+			if err := setupNonGitSnapshot(ws, worktreePath); err != nil {
+				r.cleanupWorktrees(taskID, worktreePaths, branchName)
+				return nil, "", fmt.Errorf("snapshot for %s: %w", ws, err)
+			}
+		}
+
+		worktreePaths[ws] = worktreePath
+	}
+
+	return worktreePaths, branchName, nil
+}
+
+// CleanupWorktrees is the exported variant of cleanupWorktrees for handler use.
+func (r *Runner) CleanupWorktrees(taskID uuid.UUID, worktreePaths map[string]string, branchName string) {
+	r.cleanupWorktrees(taskID, worktreePaths, branchName)
+}
+
+// cleanupWorktrees removes all worktrees/snapshots for a task and the task's
+// directory. Safe to call multiple times — errors are logged as warnings.
+func (r *Runner) cleanupWorktrees(taskID uuid.UUID, worktreePaths map[string]string, branchName string) {
+	for repoPath, wt := range worktreePaths {
+		if !gitutil.IsGitRepo(repoPath) {
+			// Non-git snapshots are cleaned by os.RemoveAll below.
+			continue
+		}
+		if err := gitutil.RemoveWorktree(repoPath, wt, branchName); err != nil {
+			logger.Runner.Warn("remove worktree", "task", taskID, "repo", repoPath, "error", err)
+		}
+	}
+	taskWorktreeDir := filepath.Join(r.worktreesDir, taskID.String())
+	if err := os.RemoveAll(taskWorktreeDir); err != nil {
+		logger.Runner.Warn("remove worktree dir", "task", taskID, "error", err)
+	}
+}
+
+// pruneOrphanedWorktrees scans worktreesDir for directories whose UUID does not
+// match any known task, removes them, and runs `git worktree prune` on all
+// git workspaces to clean up stale internal references.
+func (r *Runner) PruneOrphanedWorktrees(s *store.Store) {
+	entries, err := os.ReadDir(r.worktreesDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.Runner.Warn("read worktrees dir", "error", err)
+		}
+		return
+	}
+
+	ctx := context.Background()
+	tasks, _ := s.ListTasks(ctx, true)
+	knownIDs := make(map[string]bool, len(tasks))
+	for _, t := range tasks {
+		knownIDs[t.ID.String()] = true
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if knownIDs[entry.Name()] {
+			continue
+		}
+		orphanDir := filepath.Join(r.worktreesDir, entry.Name())
+		logger.Runner.Warn("pruning orphaned worktree dir", "dir", orphanDir)
+		os.RemoveAll(orphanDir)
+	}
+
+	// Run `git worktree prune` on all workspaces to clean stale references.
+	for _, ws := range r.Workspaces() {
+		if gitutil.IsGitRepo(ws) {
+			gitPrune(ws)
+		}
+	}
+}
+
+func gitPrune(repoPath string) {
+	// best-effort; errors are silently ignored
+	_ = runGit(repoPath, "worktree", "prune")
+}
