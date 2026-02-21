@@ -1680,3 +1680,20 @@ This matches the existing pattern in `events.js:9-15`.
 The ESC key handler in `events.js` now checks if the instructions modal is open and calls `closeInstructionsEditor()` before falling through to `closeModal()`. The priority order is: alert modal → instructions modal → task modal.
 
 ---
+
+## Task: 26d0d491
+
+**Date**: 2026-02-21 22:33:11  
+**Branch**: task/26d0d491  
+**Commit**: `65b658f25c1e274a8444f97bc851262fd05ed1a6`
+
+**Prompt**:
+> remove claude.md re-init button and only keep it in the claude.md edit modal window
+
+**Result**:
+The changes are done:
+
+- **`ui/index.html`**: Removed the "Re-init" button from the settings panel; kept only the "Edit" button with a simplified description.
+- **`ui/js/instructions.js`**: Removed `reinitInstructions()` (the settings-panel variant) and the `_doReinit()` helper. Merged the logic directly into `reinitInstructionsFromEditor()`, which remains in the edit modal.
+
+---
