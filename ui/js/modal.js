@@ -57,16 +57,19 @@ function renderResultsFromEvents(results) {
   const heading = section.querySelector('.section-title');
   if (heading) heading.textContent = results.length > 1 ? 'Results' : 'Result';
 
-  listEl.innerHTML = results.map(function(result, i) {
-    const isLast = i === results.length - 1;
+  const totalTurns = results.length;
+  // Display newest turn first so the most recent result is immediately visible.
+  listEl.innerHTML = [...results].reverse().map(function(result, i) {
+    const isNewest = i === 0;
+    const originalIndex = totalTurns - 1 - i; // chronological index (0-based)
     const isPlan = detectResultType(result) === 'plan';
-    const entryId = 'result-entry-' + i;
+    const entryId = 'result-entry-' + originalIndex;
 
     const typeBadgeHtml = isPlan
       ? '<span class="result-type-badge result-type-plan">Plan</span>'
       : '';
-    const turnLabelHtml = results.length > 1
-      ? '<span class="result-turn-label">Turn ' + (i + 1) + '</span>'
+    const turnLabelHtml = totalTurns > 1
+      ? '<span class="result-turn-label">Turn ' + (originalIndex + 1) + '</span>'
       : '';
     const labelsHtml = '<div class="result-entry-labels">' + typeBadgeHtml + turnLabelHtml + '</div>';
     const btnRowHtml =
@@ -80,7 +83,7 @@ function renderResultsFromEvents(results) {
       '<div id="' + entryId + '-rendered" class="result-entry-body prose-content">' + renderMarkdown(result) + '</div>' +
       '<pre id="' + entryId + '-raw" class="result-entry-body hidden">' + escapeHtml(result) + '</pre>';
 
-    if (!isLast) {
+    if (!isNewest) {
       return '<details class="result-entry">' +
         '<summary class="result-entry-summary">' + labelsHtml + '</summary>' +
         '<div class="result-entry-actions">' + btnRowHtml + '</div>' +
