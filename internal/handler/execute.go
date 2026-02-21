@@ -190,8 +190,8 @@ func (h *Handler) ArchiveTask(w http.ResponseWriter, r *http.Request, id uuid.UU
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
-	if task.Status != "done" {
-		http.Error(w, "only done tasks can be archived", http.StatusBadRequest)
+	if task.Status != "done" && task.Status != "cancelled" {
+		http.Error(w, "only done or cancelled tasks can be archived", http.StatusBadRequest)
 		return
 	}
 	if err := h.store.SetTaskArchived(r.Context(), id, true); err != nil {

@@ -294,13 +294,14 @@ async function openModal(id) {
     retrySection.classList.add('hidden');
   }
 
-  // Archive/Unarchive section (done tasks only)
+  // Archive/Unarchive section (done or cancelled tasks)
   const archiveSection = document.getElementById('modal-archive-section');
   const unarchiveSection = document.getElementById('modal-unarchive-section');
-  if (task.status === 'done' && !task.archived) {
+  const isArchivable = task.status === 'done' || task.status === 'cancelled';
+  if (isArchivable && !task.archived) {
     archiveSection.classList.remove('hidden');
     unarchiveSection.classList.add('hidden');
-  } else if (task.status === 'done' && task.archived) {
+  } else if (isArchivable && task.archived) {
     archiveSection.classList.add('hidden');
     unarchiveSection.classList.remove('hidden');
   } else {
