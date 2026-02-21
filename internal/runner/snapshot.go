@@ -42,9 +42,11 @@ func setupNonGitSnapshot(ws, snapshotPath string) error {
 // falls back to cp which covers new/modified files only.
 func extractSnapshotToWorkspace(snapshotPath, targetPath string) error {
 	// rsync handles new, modified, AND deleted files correctly.
+	// --checksum is needed because files may have the same size and mtime
+	// but different content (e.g. macOS openrsync skips them otherwise).
 	if _, err := exec.LookPath("rsync"); err == nil {
 		out, err := exec.Command(
-			"rsync", "-a", "--delete", "--exclude=.git",
+			"rsync", "-a", "--checksum", "--delete", "--exclude=.git",
 			snapshotPath+"/", targetPath+"/",
 		).CombinedOutput()
 		if err != nil {
