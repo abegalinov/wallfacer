@@ -137,7 +137,6 @@ Multiple workspace paths can be passed at startup (see [Architecture — Configu
 - Git status is polled independently and shown in the UI header
 - A separate worktree is created per task per workspace
 - The commit pipeline runs phases 1–3 for each workspace in sequence
-- `PROGRESS.md` is maintained per workspace
 
 Non-git directories are supported as plain mount targets (no worktree, no commit pipeline for that workspace).
 

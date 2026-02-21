@@ -370,8 +370,8 @@ func TestHostStageAndCommitNoChanges(t *testing.T) {
 // Commit pipeline
 // ---------------------------------------------------------------------------
 
-// TestCommitPipelineBasic tests the full commit pipeline (Phase 1-4):
-// host commit → rebase → ff-merge → PROGRESS.md → cleanup.
+// TestCommitPipelineBasic tests the full commit pipeline (Phase 1-3):
+// host commit → rebase → ff-merge → cleanup.
 func TestCommitPipelineBasic(t *testing.T) {
 	repo := setupTestRepo(t)
 	s, runner := setupTestRunner(t, []string{repo})
@@ -497,7 +497,7 @@ func TestCommitPipelineDivergedBranch(t *testing.T) {
 
 // TestCommitPipelineNoChanges tests the pipeline when the worktree has no
 // changes. The pipeline should complete without errors and without creating
-// any merge commits (only PROGRESS.md may be updated).
+// any commits.
 func TestCommitPipelineNoChanges(t *testing.T) {
 	repo := setupTestRepo(t)
 	s, runner := setupTestRunner(t, []string{repo})
@@ -525,15 +525,12 @@ func TestCommitPipelineNoChanges(t *testing.T) {
 	defer cancel()
 	runner.commit(commitCtx, task.ID, "", 1, worktreePaths, branchName)
 
-	// The only possible change is the PROGRESS.md commit.
-	log := gitRun(t, repo, "log", "--oneline")
-	// There should be no wallfacer: task commit (only PROGRESS.md and initial).
-	for _, line := range strings.Split(log, "\n") {
-		if strings.Contains(line, "wallfacer:") && !strings.Contains(line, "progress log") {
-			t.Fatalf("unexpected wallfacer task commit when there were no changes:\n%s", log)
-		}
+	// There should be no new commits at all.
+	currentHash := gitRun(t, repo, "rev-parse", "HEAD")
+	if currentHash != initialHash {
+		log := gitRun(t, repo, "log", "--oneline")
+		t.Fatalf("expected no new commits, but HEAD moved:\n%s", log)
 	}
-	_ = initialHash
 }
 
 // TestCompleteTaskE2E simulates the exact waiting→done flow that the user
@@ -603,11 +600,6 @@ func TestCompleteTaskE2E(t *testing.T) {
 	log := gitRun(t, repo, "log", "--oneline")
 	if !strings.Contains(log, "wallfacer:") {
 		t.Fatalf("expected wallfacer commit on default branch:\n%s", log)
-	}
-
-	// Verify PROGRESS.md was written.
-	if _, err := os.Stat(filepath.Join(repo, "PROGRESS.md")); err != nil {
-		t.Fatal("PROGRESS.md should exist after commit:", err)
 	}
 
 	// Verify worktree is cleaned up.

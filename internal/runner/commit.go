@@ -15,7 +15,7 @@ import (
 )
 
 // Commit creates its own timeout context and runs the full commit pipeline
-// (stage → rebase → merge → PROGRESS.md) for a task.
+// (stage → rebase → merge → cleanup) for a task.
 // Returns an error if any phase of the pipeline fails.
 func (r *Runner) Commit(taskID uuid.UUID, sessionID string) error {
 	task, err := r.store.GetTask(context.Background(), taskID)
@@ -33,7 +33,7 @@ func (r *Runner) Commit(taskID uuid.UUID, sessionID string) error {
 }
 
 // commit runs Phase 1 (host-side commit in worktree), Phase 2 (host-side
-// rebase+merge), Phase 3 (PROGRESS.md), Phase 4 (worktree cleanup).
+// rebase+merge), Phase 3 (worktree cleanup).
 // Returns an error if the rebase/merge phase fails.
 func (r *Runner) commit(
 	ctx context.Context,
@@ -48,7 +48,7 @@ func (r *Runner) commit(
 
 	// Phase 1: stage and commit all uncommitted changes on the host.
 	r.store.InsertEvent(bgCtx, taskID, "system", map[string]string{
-		"result": "Phase 1/4: Staging and committing changes...",
+		"result": "Phase 1/3: Staging and committing changes...",
 	})
 	task, _ := r.store.GetTask(bgCtx, taskID)
 	taskPrompt := ""
@@ -59,7 +59,7 @@ func (r *Runner) commit(
 
 	// Phase 2: host-side rebase and merge for each git worktree.
 	r.store.InsertEvent(bgCtx, taskID, "system", map[string]string{
-		"result": "Phase 2/4: Rebasing and merging into default branch...",
+		"result": "Phase 2/3: Rebasing and merging into default branch...",
 	})
 	commitHashes, baseHashes, mergeErr := r.rebaseAndMerge(ctx, taskID, worktreePaths, branchName, sessionID)
 	if mergeErr != nil {
@@ -70,9 +70,9 @@ func (r *Runner) commit(
 		return fmt.Errorf("rebase/merge: %w", mergeErr)
 	}
 
-	// Phase 3: persist commit hashes and write PROGRESS.md.
+	// Phase 3: persist commit hashes and clean up worktrees.
 	r.store.InsertEvent(bgCtx, taskID, "system", map[string]string{
-		"result": "Phase 3/4: Updating PROGRESS.md...",
+		"result": "Phase 3/3: Cleaning up...",
 	})
 	if len(commitHashes) > 0 {
 		if err := r.store.UpdateTaskCommitHashes(bgCtx, taskID, commitHashes); err != nil {
@@ -84,17 +84,6 @@ func (r *Runner) commit(
 			logger.Runner.Warn("save base commit hashes", "task", taskID, "error", err)
 		}
 	}
-	task, _ = r.store.GetTask(bgCtx, taskID)
-	if task != nil {
-		if err := r.writeProgressMD(task, commitHashes); err != nil {
-			logger.Runner.Warn("write PROGRESS.md", "task", taskID, "error", err)
-		}
-	}
-
-	// Phase 4: remove worktrees now that the branch has been merged.
-	r.store.InsertEvent(bgCtx, taskID, "system", map[string]string{
-		"result": "Phase 4/4: Cleaning up worktrees...",
-	})
 	r.cleanupWorktrees(taskID, worktreePaths, branchName)
 
 	r.store.InsertEvent(bgCtx, taskID, "system", map[string]string{

@@ -84,22 +84,7 @@ git merge --ff-only <task-branch>
 
 **Conflict resolution loop:** If `git rebase` exits non-zero, Wallfacer invokes Claude Code again — using the original task's session ID — passing it the conflict details. Claude resolves the conflicts and stages the result. The rebase is then continued and retried. Up to 3 attempts are made before the task is marked `failed`.
 
-### Phase 3 — PROGRESS.md (host-side)
-
-In each workspace's main working tree, Wallfacer appends a record to `PROGRESS.md`:
-
-```markdown
-## <task-uuid> — <timestamp>
-
-**Branch:** task/a1b2c3d4
-**Commit:** abc123ef
-**Prompt:** <original task prompt>
-**Result:** <Claude's final output summary>
-```
-
-The file is then auto-committed directly on the default branch (not via worktree).
-
-### Phase 4 — Cleanup
+### Phase 3 — Cleanup
 
 ```
 git worktree remove --force   ← remove worktree directory
