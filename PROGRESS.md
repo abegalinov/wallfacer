@@ -1377,3 +1377,20 @@ The retry path (`→ backlog`) in `handler/tasks.go:99` only accepted `done/fail
 **Re: failed tasks without a session_id** — there's nothing broken there. If a task times out before Claude returns *any* output (no session establ...
 
 ---
+
+## Task: 63375875
+
+**Date**: 2026-02-21 19:24:04  
+**Branch**: task/63375875  
+**Commit**: `8df722803eeb201ea2545e17d2f37320a1c43b8d`
+
+**Prompt**:
+> In UI, markdown rendering for prompt seems do not render bullet point very well and "bullet dot" is missing from rendered view. Investigate and fix
+
+**Result**:
+The fix adds explicit `list-style-type` values to both `.prose-content` and `.card-prose` selectors:
+
+- **Root cause:** Tailwind CSS preflight (loaded via CDN) resets `list-style: none` on all `ul`/`ol` elements. The prose CSS rules only set `padding-left` and `margin`, never restoring the bullet style.
+- **Fix:** Split the combined `ul, ol` selector into two rules, adding `list-style-type: disc` for unordered lists and `list-style-type: decimal` for ordered lists — in both the modal (`.prose-content`) and card preview (`.card-prose`) contexts.
+
+---
