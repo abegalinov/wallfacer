@@ -1562,3 +1562,39 @@ These were both present in Tailwind's Preflight when using the CDN, but were los
 - **Heading reset** — Removes the browser's default `margin-block: 0.83em` on `h2` elements; the column headers ("Backlog", "In Progress", etc.) had no explicit margin reset in `.col-header`, so they inherited ~10px top/bottom margins from the browser, making that row noticeably taller
 
 ---
+
+## Task: 3af01697
+
+**Date**: 2026-02-21 22:30:44  
+**Branch**: task/3af01697  
+**Commit**: `b1536fa7f1d9d93d5ff446870ed69a2bad8a6825`
+
+**Prompt**:
+> when server is accidentally crashed or reboot, the inprogress tasks are automatically moved to waiting and marked with fail status.
+> 
+> fix this by:
+> 
+> 1. make sure in progress tasks stays despite reboot
+> 2. check with running containers to understand if in progress tasks should be moved to waiting 
+> 3. handle gracefully if a in progress task is terminating and the server is not running at all
+
+**Result**:
+Clean build. Here's a summary of what was changed and why:
+
+---
+
+**Changes in `server.go`:**
+
+`recoverOrphanedTasks(s *store.Store)` → `recoverOrphanedTasks(s *store.Store, r *runner.Runner)`
+
+On startup it now does the following instead of blindly marking everything failed:
+
+1. **Queries the container runtime** (`ListContainers`) to build a set of task IDs with actively running containers. If the query fails (runtime unavailable), it falls back to treating all tasks as stopped — safe degradation.
+
+2. **`committing` tasks** → still moved to `failed` (the commit pipeline can't be safely resumed mid-flight).
+
+3. **`in_progress` tasks with a running container** → left as `in_progress`. A `monitorContainerUntilStopped` goroutine polls every 5 s and moves the task to `waiting` once the container exits, so the user can then resume with feedback, mark as done, or cancel.
+
+4. **`in_progress` tasks with no container** → moved to `waiting` (not `failed`). The task may have produced use...
+
+---
