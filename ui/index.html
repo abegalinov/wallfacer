@@ -162,27 +162,29 @@
       <h2 class="col-header col-header-backlog">Backlog</h2>
       <span id="count-backlog" class="text-xs text-v-muted">0</span>
     </div>
-    <button id="new-task-btn" onclick="showNewTaskForm()" class="btn-dashed mb-2">+ New Task</button>
-    <div id="new-task-form" class="hidden mb-2">
-      <textarea id="new-prompt" rows="6" placeholder="Describe your task (Markdown supported)..." class="field"></textarea>
-      <div class="flex items-center justify-between mt-2">
-        <div class="flex items-center gap-1">
-          <button onclick="createTask()" class="btn btn-accent">Save</button>
-          <button onclick="hideNewTaskForm()" class="btn-ghost">Cancel</button>
+    <div class="column col-bg flex flex-col">
+      <button id="new-task-btn" onclick="showNewTaskForm()" class="btn-dashed mb-2">+ New Task</button>
+      <div id="new-task-form" class="hidden mb-2">
+        <textarea id="new-prompt" rows="6" placeholder="Describe your task (Markdown supported)..." class="field"></textarea>
+        <div class="flex items-center justify-between mt-2">
+          <div class="flex items-center gap-1">
+            <button onclick="createTask()" class="btn btn-accent">Save</button>
+            <button onclick="hideNewTaskForm()" class="btn-ghost">Cancel</button>
+          </div>
+          <select id="new-timeout" class="select" title="Timeout">
+            <option value="5">5 min</option>
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+            <option value="60">1 hour</option>
+            <option value="120">2 hours</option>
+            <option value="360">6 hours</option>
+            <option value="720">12 hours</option>
+            <option value="1440">24 hours</option>
+          </select>
         </div>
-        <select id="new-timeout" class="select" title="Timeout">
-          <option value="5">5 min</option>
-          <option value="15">15 min</option>
-          <option value="30">30 min</option>
-          <option value="60">1 hour</option>
-          <option value="120">2 hours</option>
-          <option value="360">6 hours</option>
-          <option value="720">12 hours</option>
-          <option value="1440">24 hours</option>
-        </select>
       </div>
+      <div id="col-backlog" class="space-y-2" data-status="backlog"></div>
     </div>
-    <div id="col-backlog" class="column col-bg space-y-2" data-status="backlog"></div>
   </div>
   <div class="flex flex-col min-h-0" id="col-wrapper-in_progress">
     <div class="flex items-center gap-2 mb-3 px-1">
