@@ -178,8 +178,15 @@ func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 				}
 			} else if task.BranchName != "" {
 				if defBranch, err := gitutil.DefaultBranch(repoPath); err == nil {
-					out, _ = exec.CommandContext(r.Context(), "git", "-C", repoPath,
-						"diff", defBranch+".."+task.BranchName).Output()
+					// Use merge-base so we only see changes introduced on the task
+					// branch, not the inverse of commits that advanced main.
+					if base, mbErr := gitutil.MergeBase(repoPath, defBranch, task.BranchName); mbErr == nil {
+						out, _ = exec.CommandContext(r.Context(), "git", "-C", repoPath,
+							"diff", base, task.BranchName).Output()
+					} else {
+						out, _ = exec.CommandContext(r.Context(), "git", "-C", repoPath,
+							"diff", defBranch+".."+task.BranchName).Output()
+					}
 				}
 			}
 			if len(out) > 0 {
@@ -197,9 +204,10 @@ func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 		}
 		// Use merge-base to diff only this task's changes since it diverged,
 		// ignoring any commits that advanced the default branch from other tasks.
+		// Fall back to diffing against the default branch tip if merge-base fails.
 		base, err := gitutil.MergeBase(worktreePath, "HEAD", defBranch)
 		if err != nil {
-			continue
+			base = defBranch
 		}
 		out, _ := exec.CommandContext(r.Context(), "git", "-C", worktreePath, "diff", base).Output()
 
