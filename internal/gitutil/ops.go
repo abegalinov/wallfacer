@@ -74,6 +74,16 @@ func HasCommitsAheadOf(worktreePath, baseBranch string) (bool, error) {
 	return n > 0, nil
 }
 
+// MergeBase returns the best common ancestor (merge-base) of two refs,
+// evaluated in the given repository/worktree path.
+func MergeBase(repoPath, ref1, ref2 string) (string, error) {
+	out, err := exec.Command("git", "-C", repoPath, "merge-base", ref1, ref2).Output()
+	if err != nil {
+		return "", fmt.Errorf("git merge-base %s %s in %s: %w", ref1, ref2, repoPath, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // IsConflictOutput reports whether git output text indicates a merge conflict.
 func IsConflictOutput(s string) bool {
 	return strings.Contains(s, "CONFLICT") ||

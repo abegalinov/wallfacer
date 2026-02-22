@@ -25,6 +25,44 @@ func TestIsConflictOutput(t *testing.T) {
 	}
 }
 
+func TestMergeBase(t *testing.T) {
+	t.Run("returns correct ancestor for diverged branches", func(t *testing.T) {
+		repo := setupRepo(t)
+		forkPoint := gitRun(t, repo, "rev-parse", "HEAD")
+
+		// Create worktree with a task branch.
+		wtDir := filepath.Join(t.TempDir(), "wt")
+		gitRun(t, repo, "worktree", "add", "-b", "task", wtDir, "HEAD")
+		t.Cleanup(func() { RemoveWorktree(repo, wtDir, "task") })
+
+		// Advance main.
+		writeFile(t, filepath.Join(repo, "m.txt"), "main\n")
+		gitRun(t, repo, "add", ".")
+		gitRun(t, repo, "commit", "-m", "main advance")
+
+		// Advance task branch.
+		writeFile(t, filepath.Join(wtDir, "t.txt"), "task\n")
+		gitRun(t, wtDir, "add", ".")
+		gitRun(t, wtDir, "commit", "-m", "task advance")
+
+		base, err := MergeBase(wtDir, "HEAD", "main")
+		if err != nil {
+			t.Fatalf("MergeBase: %v", err)
+		}
+		if base != forkPoint {
+			t.Errorf("MergeBase = %s, want %s", base, forkPoint)
+		}
+	})
+
+	t.Run("returns error for invalid refs", func(t *testing.T) {
+		repo := setupRepo(t)
+		_, err := MergeBase(repo, "HEAD", "nonexistent-branch")
+		if err == nil {
+			t.Error("expected error for invalid ref, got nil")
+		}
+	})
+}
+
 func TestCommitsBehind(t *testing.T) {
 	t.Run("zero when branches are equal", func(t *testing.T) {
 		repo := setupRepo(t)

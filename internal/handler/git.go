@@ -195,8 +195,13 @@ func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 		if err != nil {
 			continue
 		}
-		// Show all changes in worktree vs default branch (committed + uncommitted).
-		out, _ := exec.CommandContext(r.Context(), "git", "-C", worktreePath, "diff", defBranch).Output()
+		// Use merge-base to diff only this task's changes since it diverged,
+		// ignoring any commits that advanced the default branch from other tasks.
+		base, err := gitutil.MergeBase(worktreePath, "HEAD", defBranch)
+		if err != nil {
+			continue
+		}
+		out, _ := exec.CommandContext(r.Context(), "git", "-C", worktreePath, "diff", base).Output()
 
 		// Include untracked files via --no-index diffs.
 		if untrackedRaw, err := exec.CommandContext(r.Context(), "git", "-C", worktreePath,
