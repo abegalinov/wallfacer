@@ -541,6 +541,23 @@ func TestResetTaskForRetry_AccumulatesHistory(t *testing.T) {
 	}
 }
 
+func TestResetTaskForRetry_ClearsBaseCommitHashes(t *testing.T) {
+	s := newTestStore(t)
+	task, _ := s.CreateTask(bg(), "original", 5)
+	s.UpdateTaskCommitHashes(bg(), task.ID, map[string]string{"/repo": "abc"})
+	s.UpdateTaskBaseCommitHashes(bg(), task.ID, map[string]string{"/repo": "def"})
+
+	s.ResetTaskForRetry(bg(), task.ID, "retry prompt", true)
+
+	got, _ := s.GetTask(bg(), task.ID)
+	if got.BaseCommitHashes != nil {
+		t.Errorf("BaseCommitHashes should be nil after reset, got %v", got.BaseCommitHashes)
+	}
+	if got.CommitHashes != nil {
+		t.Errorf("CommitHashes should be nil after reset, got %v", got.CommitHashes)
+	}
+}
+
 func TestResetTaskForRetry_NotFound(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.ResetTaskForRetry(bg(), uuid.New(), "", false); err == nil {

@@ -1276,3 +1276,106 @@ func TestConcurrentCompleteTaskCommitErrorPropagated(t *testing.T) {
 		t.Fatal("expected Commit to return an error for conflicting changes, got nil")
 	}
 }
+
+// TestCommitPipelineBaseHashUsesDefBranch verifies that the commit pipeline
+// stores the default branch HEAD in BaseCommitHashes, NOT the current HEAD
+// (which could be a feature branch).
+func TestCommitPipelineBaseHashUsesDefBranch(t *testing.T) {
+	repo := setupTestRepo(t)
+	s, runner := setupTestRunner(t, []string{repo})
+	ctx := context.Background()
+
+	// Record main HEAD before creating a feature branch.
+	mainHash := gitRun(t, repo, "rev-parse", "main")
+
+	// Create and checkout a feature branch with an extra commit so that
+	// HEAD differs from the default branch.
+	gitRun(t, repo, "checkout", "-b", "feature-xyz")
+	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("feature\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "feature commit")
+	featureHash := gitRun(t, repo, "rev-parse", "HEAD")
+
+	// Go back to main so worktree branching works.
+	gitRun(t, repo, "checkout", "main")
+
+	// Create task and worktree.
+	task, err := s.CreateTask(ctx, "Base hash test", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worktreePaths, branchName, err := runner.setupWorktrees(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+		t.Fatal(err)
+	}
+
+	wt := worktreePaths[repo]
+	if err := os.WriteFile(filepath.Join(wt, "task.txt"), []byte("task work\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	commitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	runner.commit(commitCtx, task.ID, "", 1, worktreePaths, branchName)
+
+	updated, _ := s.GetTask(ctx, task.ID)
+
+	// BaseCommitHashes must contain main's HEAD, not the feature branch HEAD.
+	base := updated.BaseCommitHashes[repo]
+	if base == "" {
+		t.Fatal("BaseCommitHashes should be populated")
+	}
+	if base != mainHash {
+		t.Errorf("BaseCommitHashes = %q, want main HEAD %q", base, mainHash)
+	}
+	if base == featureHash {
+		t.Error("BaseCommitHashes incorrectly captured the feature branch HEAD")
+	}
+}
+
+// TestCommitPipelineNoChangesStoresBaseHash verifies that BaseCommitHashes is
+// populated even when the task has no commits to merge (early return path).
+func TestCommitPipelineNoChangesStoresBaseHash(t *testing.T) {
+	repo := setupTestRepo(t)
+	s, runner := setupTestRunner(t, []string{repo})
+	ctx := context.Background()
+
+	task, err := s.CreateTask(ctx, "No changes base hash test", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	worktreePaths, branchName, err := runner.setupWorktrees(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskWorktrees(ctx, task.ID, worktreePaths, branchName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskStatus(ctx, task.ID, "committing"); err != nil {
+		t.Fatal(err)
+	}
+
+	mainHash := gitRun(t, repo, "rev-parse", "main")
+
+	commitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	runner.commit(commitCtx, task.ID, "", 1, worktreePaths, branchName)
+
+	updated, _ := s.GetTask(ctx, task.ID)
+	base := updated.BaseCommitHashes[repo]
+	if base == "" {
+		t.Fatal("BaseCommitHashes should be populated even with no changes")
+	}
+	if base != mainHash {
+		t.Errorf("BaseCommitHashes = %q, want main HEAD %q", base, mainHash)
+	}
+}

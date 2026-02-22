@@ -567,6 +567,81 @@ func TestSyncWorktreesPrevStatusRestored(t *testing.T) {
 	}
 }
 
+// TestRunWaitingFeedbackDonePreservesChanges is the critical end-to-end test
+// for the exact bug scenario: in_progress → waiting → (feedback) → in_progress → done.
+// It verifies that all changes from both runs are preserved on the default branch.
+func TestRunWaitingFeedbackDonePreservesChanges(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	// First call returns waiting (empty stop_reason), second returns end_turn.
+	cmd := fakeStatefulCmd(t, []string{waitingOutput, endTurnOutput})
+	s, r := setupRunnerWithCmd(t, []string{repo}, cmd)
+	ctx := context.Background()
+
+	task, err := s.CreateTask(ctx, "Waiting→Done test", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First Run: produces waitingOutput → task goes to "waiting".
+	r.Run(task.ID, "do the task", "", false)
+
+	updated, _ := s.GetTask(ctx, task.ID)
+	if updated.Status != "waiting" {
+		t.Fatalf("expected status=waiting after first run, got %q", updated.Status)
+	}
+	if len(updated.WorktreePaths) == 0 {
+		t.Fatal("WorktreePaths should be populated after first run")
+	}
+
+	wt := updated.WorktreePaths[repo]
+
+	// Simulate Claude writing a file during execution (between runs).
+	if err := os.WriteFile(filepath.Join(wt, "task-output.txt"), []byte("task result\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second Run (feedback resume): produces endTurnOutput → commit pipeline → done.
+	r.Run(task.ID, "continue", *updated.SessionID, false)
+
+	final, _ := s.GetTask(ctx, task.ID)
+	if final.Status != "done" {
+		t.Fatalf("expected status=done after second run, got %q", final.Status)
+	}
+
+	// Verify the file exists on the default branch after merge.
+	if _, err := os.Stat(filepath.Join(repo, "task-output.txt")); err != nil {
+		t.Fatal("task-output.txt should exist on default branch after commit pipeline:", err)
+	}
+	content, _ := os.ReadFile(filepath.Join(repo, "task-output.txt"))
+	if string(content) != "task result\n" {
+		t.Fatalf("unexpected content: %q", content)
+	}
+
+	// Verify CommitHashes and BaseCommitHashes are stored.
+	if len(final.CommitHashes) == 0 {
+		t.Error("CommitHashes should be populated after commit pipeline")
+	}
+	if len(final.BaseCommitHashes) == 0 {
+		t.Error("BaseCommitHashes should be populated after commit pipeline")
+	}
+	if final.BaseCommitHashes[repo] == "" {
+		t.Error("BaseCommitHashes should contain a hash for the repo")
+	}
+	if final.CommitHashes[repo] == "" {
+		t.Error("CommitHashes should contain a hash for the repo")
+	}
+	// Base and commit hashes should differ (task added a commit).
+	if final.BaseCommitHashes[repo] == final.CommitHashes[repo] {
+		t.Error("BaseCommitHashes and CommitHashes should differ (task made changes)")
+	}
+
+	// Verify worktrees are cleaned up.
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Fatal("worktree should have been cleaned up after commit pipeline")
+	}
+}
+
 // Ensure time is imported to avoid unused import warnings.
 var _ = time.Second
 

@@ -238,6 +238,54 @@ func TestTaskDiffFallbackBranchUseMergeBase(t *testing.T) {
 	}
 }
 
+// TestTaskDiffAfterCommitPipeline verifies that TaskDiff returns the correct
+// diff using stored commit hashes after the commit pipeline has run and cleaned
+// up worktrees. Specifically tests that the diff works when the original repo
+// is NOT on the default branch.
+func TestTaskDiffAfterCommitPipeline(t *testing.T) {
+	repo := setupRepo(t)
+	h := newTestHandler(t)
+	ctx := context.Background()
+
+	// Record the initial main HEAD as base.
+	baseHash := gitRun(t, repo, "rev-parse", "HEAD")
+
+	// Create a feature branch and switch to it (simulates user not being on main).
+	gitRun(t, repo, "checkout", "-b", "user-feature")
+	os.WriteFile(filepath.Join(repo, "user-work.txt"), []byte("user work\n"), 0644)
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "user feature commit")
+
+	// Go back to main and simulate a task commit.
+	gitRun(t, repo, "checkout", "main")
+	os.WriteFile(filepath.Join(repo, "task-work.txt"), []byte("task output\n"), 0644)
+	gitRun(t, repo, "add", ".")
+	gitRun(t, repo, "commit", "-m", "wallfacer: task work")
+	commitHash := gitRun(t, repo, "rev-parse", "HEAD")
+
+	// Switch back to the feature branch (repo HEAD is NOT on main).
+	gitRun(t, repo, "checkout", "user-feature")
+
+	// Create a task with worktree gone (cleaned up after commit pipeline),
+	// but with correct commit hashes stored using the defBranch ref.
+	task, _ := h.store.CreateTask(ctx, "test", 5)
+	nonexistent := filepath.Join(t.TempDir(), "cleaned-up")
+	h.store.UpdateTaskWorktrees(ctx, task.ID, map[string]string{repo: nonexistent}, "task-branch")
+	h.store.UpdateTaskCommitHashes(ctx, task.ID, map[string]string{repo: commitHash})
+	h.store.UpdateTaskBaseCommitHashes(ctx, task.ID, map[string]string{repo: baseHash})
+
+	resp := callTaskDiff(t, h, task.ID)
+
+	// Should show the task's work.
+	if !strings.Contains(resp.Diff, "task-work.txt") {
+		t.Error("expected diff to show task-work.txt")
+	}
+	// Should NOT show the user's feature branch work.
+	if strings.Contains(resp.Diff, "user-work.txt") {
+		t.Error("diff should NOT contain user-work.txt (user's feature branch)")
+	}
+}
+
 func TestTaskDiffIsolationConcurrent(t *testing.T) {
 	repo := setupRepo(t)
 	h := newTestHandler(t)

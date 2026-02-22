@@ -65,6 +65,47 @@ func TestDefaultBranch(t *testing.T) {
 	})
 }
 
+func TestGetCommitHashForRef(t *testing.T) {
+	t.Run("returns main HEAD when on different branch", func(t *testing.T) {
+		repo := setupRepo(t)
+		mainHash := gitRun(t, repo, "rev-parse", "main")
+
+		// Create and checkout a new branch with an extra commit.
+		gitRun(t, repo, "checkout", "-b", "feature")
+		writeFile(t, filepath.Join(repo, "feature.txt"), "feature\n")
+		gitRun(t, repo, "add", ".")
+		gitRun(t, repo, "commit", "-m", "feature commit")
+
+		// GetCommitHashForRef("main") should return main's HEAD, not feature's.
+		hash, err := GetCommitHashForRef(repo, "main")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if hash != mainHash {
+			t.Errorf("got %q, want main HEAD %q", hash, mainHash)
+		}
+
+		// Verify it differs from HEAD (which is on feature).
+		headHash, _ := GetCommitHash(repo)
+		if hash == headHash {
+			t.Error("main hash should differ from HEAD (feature branch)")
+		}
+	})
+
+	t.Run("error for invalid ref", func(t *testing.T) {
+		repo := setupRepo(t)
+		if _, err := GetCommitHashForRef(repo, "nonexistent-ref-xyz"); err == nil {
+			t.Error("expected error for invalid ref")
+		}
+	})
+
+	t.Run("non-git directory returns error", func(t *testing.T) {
+		if _, err := GetCommitHashForRef(t.TempDir(), "main"); err == nil {
+			t.Error("expected error for non-git path")
+		}
+	})
+}
+
 func TestGetCommitHash(t *testing.T) {
 	t.Run("valid repo returns 40-char SHA", func(t *testing.T) {
 		repo := setupRepo(t)
