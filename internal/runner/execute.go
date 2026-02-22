@@ -86,11 +86,35 @@ func (r *Runner) Run(taskID uuid.UUID, prompt, sessionID string, resumedFromWait
 
 	turns := task.Turns
 
+	// Prepare board context (board.json manifest of all tasks).
+	boardDir, boardErr := r.prepareBoardContext(taskID, task.MountWorktrees)
+	if boardErr != nil {
+		logger.Runner.Warn("board context failed", "task", taskID, "error", boardErr)
+	}
+	defer func() {
+		if boardDir != "" {
+			os.RemoveAll(boardDir)
+		}
+	}()
+
+	// Build sibling worktree mounts if opted in.
+	var siblingMounts map[string]map[string]string
+	if task.MountWorktrees {
+		siblingMounts = r.buildSiblingMounts(taskID)
+	}
+
 	for {
 		turns++
 		logger.Runner.Info("turn", "task", taskID, "turn", turns, "session", sessionID, "timeout", timeout)
 
-		output, rawStdout, rawStderr, err := r.runContainer(ctx, taskID, prompt, sessionID, worktreePaths)
+		// Refresh board.json before each turn so it reflects latest state.
+		if boardDir != "" {
+			if data, err := r.generateBoardContext(taskID, task.MountWorktrees); err == nil {
+				os.WriteFile(filepath.Join(boardDir, "board.json"), data, 0644)
+			}
+		}
+
+		output, rawStdout, rawStderr, err := r.runContainer(ctx, taskID, prompt, sessionID, worktreePaths, boardDir, siblingMounts)
 		if saveErr := r.store.SaveTurnOutput(taskID, turns, rawStdout, rawStderr); saveErr != nil {
 			logger.Runner.Error("save turn output", "task", taskID, "turn", turns, "error", saveErr)
 		}

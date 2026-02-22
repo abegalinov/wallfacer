@@ -117,7 +117,7 @@ func TestContainerArgsMountsCLAUDEMD(t *testing.T) {
 	}
 
 	runner := newTestRunnerWithInstructions(t, instructionsFile)
-	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil, "", nil)
 
 	expectedMount := instructionsFile + ":/workspace/CLAUDE.md:z,ro"
 	if !containsConsecutive(args, "-v", expectedMount) {
@@ -129,7 +129,7 @@ func TestContainerArgsMountsCLAUDEMD(t *testing.T) {
 // empty no CLAUDE.md mount is added to the container args.
 func TestContainerArgsNoInstructionsPath(t *testing.T) {
 	runner := newTestRunnerWithInstructions(t, "")
-	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil, "", nil)
 
 	for _, a := range args {
 		if strings.Contains(a, "CLAUDE.md") {
@@ -144,7 +144,7 @@ func TestContainerArgsNoInstructionsPath(t *testing.T) {
 func TestContainerArgsMissingInstructionsFile(t *testing.T) {
 	missingPath := filepath.Join(t.TempDir(), "nonexistent.md")
 	runner := newTestRunnerWithInstructions(t, missingPath)
-	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil, "", nil)
 
 	for _, a := range args {
 		if strings.Contains(a, "CLAUDE.md") {
@@ -162,7 +162,7 @@ func TestContainerArgsCLAUDEMDMountIsReadOnly(t *testing.T) {
 	}
 
 	runner := newTestRunnerWithInstructions(t, instructionsFile)
-	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil, "", nil)
 
 	for i, a := range args {
 		if a == "-v" && i+1 < len(args) && strings.Contains(args[i+1], "CLAUDE.md") {
@@ -202,7 +202,7 @@ func TestContainerArgsSingleWorkspaceMountsCLAUDEMDAtRoot(t *testing.T) {
 		InstructionsPath: instructionsFile,
 		Workspaces:       ws,
 	})
-	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil, "", nil)
 
 	basename := filepath.Base(ws)
 	expectedMount := instructionsFile + ":/workspace/" + basename + "/CLAUDE.md:z,ro"
@@ -242,7 +242,7 @@ func TestContainerArgsMultiWorkspaceMountsCLAUDEMDAtWorkspace(t *testing.T) {
 		InstructionsPath: instructionsFile,
 		Workspaces:       ws1 + " " + ws2,
 	})
-	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil, "", nil)
 
 	expectedMount := instructionsFile + ":/workspace/CLAUDE.md:z,ro"
 	if !containsConsecutive(args, "-v", expectedMount) {
@@ -273,7 +273,7 @@ func TestContainerArgsCLAUDEMDMountPosition(t *testing.T) {
 		InstructionsPath: instructionsFile,
 		Workspaces:       ws,
 	})
-	args := runner.buildContainerArgs("test-container", "do something", "", nil)
+	args := runner.buildContainerArgs("test-container", "do something", "", nil, "", nil)
 
 	claudeMDIdx := -1
 	imageIdx := -1
@@ -295,6 +295,49 @@ func TestContainerArgsCLAUDEMDMountPosition(t *testing.T) {
 	if claudeMDIdx >= imageIdx {
 		t.Fatalf("CLAUDE.md mount (index %d) should appear before sandbox image (index %d)",
 			claudeMDIdx, imageIdx)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Board context mounts
+// ---------------------------------------------------------------------------
+
+// TestBuildContainerArgs_BoardMount verifies that a non-empty boardDir adds
+// a read-only mount at /workspace/.tasks.
+func TestBuildContainerArgs_BoardMount(t *testing.T) {
+	runner := newTestRunnerWithInstructions(t, "")
+	boardDir := t.TempDir()
+	args := runner.buildContainerArgs("name", "prompt", "", nil, boardDir, nil)
+	expected := boardDir + ":/workspace/.tasks:z,ro"
+	if !containsConsecutive(args, "-v", expected) {
+		t.Fatalf("expected board mount %q in args; got: %v", expected, args)
+	}
+}
+
+// TestBuildContainerArgs_NoBoardMount verifies that an empty boardDir does
+// not add a .tasks mount.
+func TestBuildContainerArgs_NoBoardMount(t *testing.T) {
+	runner := newTestRunnerWithInstructions(t, "")
+	args := runner.buildContainerArgs("name", "prompt", "", nil, "", nil)
+	for _, a := range args {
+		if strings.Contains(a, ".tasks") {
+			t.Fatalf("should not have .tasks mount when boardDir is empty; found %q", a)
+		}
+	}
+}
+
+// TestBuildContainerArgs_SiblingMounts verifies that sibling worktree mounts
+// are added as read-only volumes under /workspace/.tasks/worktrees/.
+func TestBuildContainerArgs_SiblingMounts(t *testing.T) {
+	runner := newTestRunnerWithInstructions(t, "")
+	siblingDir := t.TempDir()
+	siblingMounts := map[string]map[string]string{
+		"abcd1234": {"/home/user/myrepo": siblingDir},
+	}
+	args := runner.buildContainerArgs("name", "prompt", "", nil, "", siblingMounts)
+	expected := siblingDir + ":/workspace/.tasks/worktrees/abcd1234/myrepo:z,ro"
+	if !containsConsecutive(args, "-v", expected) {
+		t.Fatalf("expected sibling mount %q in args; got: %v", expected, args)
 	}
 }
 
@@ -459,7 +502,7 @@ func TestCommitPipelineBasic(t *testing.T) {
 
 	// Create a task.
 	ctx := context.Background()
-	task, err := s.CreateTask(ctx, "Add a greeting file", 5)
+	task, err := s.CreateTask(ctx, "Add a greeting file", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +566,7 @@ func TestCommitPipelineDivergedBranch(t *testing.T) {
 	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
-	task, err := s.CreateTask(ctx, "Add feature", 5)
+	task, err := s.CreateTask(ctx, "Add feature", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +625,7 @@ func TestCommitPipelineNoChanges(t *testing.T) {
 	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
-	task, err := s.CreateTask(ctx, "No changes task", 5)
+	task, err := s.CreateTask(ctx, "No changes task", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +668,7 @@ func TestCompleteTaskE2E(t *testing.T) {
 	ctx := context.Background()
 
 	// Step 1: Create the task.
-	task, err := s.CreateTask(ctx, "Add greeting feature", 5)
+	task, err := s.CreateTask(ctx, "Add greeting feature", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +738,7 @@ func TestCommitOnTopOfLatestMain(t *testing.T) {
 	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
-	task, err := s.CreateTask(ctx, "Task on stale branch", 5)
+	task, err := s.CreateTask(ctx, "Task on stale branch", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -761,11 +804,11 @@ func TestParallelTasksSameRepo(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two tasks.
-	taskA, err := s.CreateTask(ctx, "Add file A", 5)
+	taskA, err := s.CreateTask(ctx, "Add file A", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskB, err := s.CreateTask(ctx, "Add file B", 5)
+	taskB, err := s.CreateTask(ctx, "Add file B", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -852,7 +895,7 @@ func TestParallelTasksTwoRepos(t *testing.T) {
 	s, runner := setupTestRunner(t, []string{repoX, repoY})
 	ctx := context.Background()
 
-	task, err := s.CreateTask(ctx, "Change both repos", 5)
+	task, err := s.CreateTask(ctx, "Change both repos", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -908,11 +951,11 @@ func TestParallelTasksConflictingChanges(t *testing.T) {
 	s, runner := setupTestRunner(t, []string{repo})
 	ctx := context.Background()
 
-	taskA, err := s.CreateTask(ctx, "Add line to README", 5)
+	taskA, err := s.CreateTask(ctx, "Add line to README", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskB, err := s.CreateTask(ctx, "Add another line to README", 5)
+	taskB, err := s.CreateTask(ctx, "Add another line to README", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1069,7 +1112,7 @@ func TestRunDetectsMissingWorktreePaths(t *testing.T) {
 	s, runner := setupTestRunner(t, []string{repo})
 
 	ctx := context.Background()
-	task, err := s.CreateTask(ctx, "Test feedback resume", 5)
+	task, err := s.CreateTask(ctx, "Test feedback resume", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1222,11 +1265,11 @@ func TestConcurrentCompleteTaskSameRepo(t *testing.T) {
 	ctx := context.Background()
 
 	// Create two tasks.
-	taskA, err := s.CreateTask(ctx, "Concurrent file A", 5)
+	taskA, err := s.CreateTask(ctx, "Concurrent file A", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskB, err := s.CreateTask(ctx, "Concurrent file B", 5)
+	taskB, err := s.CreateTask(ctx, "Concurrent file B", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1311,7 +1354,7 @@ func TestConcurrentCompleteTaskCommitErrorPropagated(t *testing.T) {
 	s, runner := setupTestRunner(t, []string{repo})
 	ctx := context.Background()
 
-	task, err := s.CreateTask(ctx, "Conflict task", 5)
+	task, err := s.CreateTask(ctx, "Conflict task", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1375,7 +1418,7 @@ func TestCommitPipelineBaseHashUsesDefBranch(t *testing.T) {
 	gitRun(t, repo, "checkout", "main")
 
 	// Create task and worktree.
-	task, err := s.CreateTask(ctx, "Base hash test", 5)
+	task, err := s.CreateTask(ctx, "Base hash test", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1421,7 +1464,7 @@ func TestCommitPipelineNoChangesStoresBaseHash(t *testing.T) {
 	s, runner := setupTestRunner(t, []string{repo})
 	ctx := context.Background()
 
-	task, err := s.CreateTask(ctx, "No changes base hash test", 5)
+	task, err := s.CreateTask(ctx, "No changes base hash test", 5, false)
 	if err != nil {
 		t.Fatal(err)
 	}

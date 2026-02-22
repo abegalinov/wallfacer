@@ -13,7 +13,8 @@ async function createTask() {
   }
   try {
     const timeout = parseInt(document.getElementById('new-timeout').value, 10) || DEFAULT_TASK_TIMEOUT;
-    await api('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt, timeout }) });
+    const mount_worktrees = document.getElementById('new-mount-worktrees').checked;
+    await api('/api/tasks', { method: 'POST', body: JSON.stringify({ prompt, timeout, mount_worktrees }) });
     hideNewTaskForm();
     fetchTasks();
   } catch (e) {
@@ -37,6 +38,7 @@ function hideNewTaskForm() {
   const textarea = document.getElementById('new-prompt');
   textarea.value = '';
   textarea.style.height = '';
+  document.getElementById('new-mount-worktrees').checked = false;
 }
 
 // --- Task status updates ---
@@ -171,10 +173,11 @@ function scheduleBacklogSave() {
     const prompt = document.getElementById('modal-edit-prompt').value.trim();
     if (!prompt) return;
     const timeout = parseInt(document.getElementById('modal-edit-timeout').value, 10) || DEFAULT_TASK_TIMEOUT;
+    const mount_worktrees = document.getElementById('modal-edit-mount-worktrees').checked;
     try {
       await api(`/api/tasks/${currentTaskId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ prompt, timeout }),
+        body: JSON.stringify({ prompt, timeout, mount_worktrees }),
       });
       statusEl.textContent = 'Saved';
       setTimeout(() => { if (statusEl.textContent === 'Saved') statusEl.textContent = ''; }, 1500);

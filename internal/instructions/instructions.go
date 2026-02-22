@@ -24,6 +24,17 @@ This file provides guidance to Claude Code when working on tasks in this workspa
 - Run tests if available to verify your changes work correctly.
 - Write clear, descriptive commit messages explaining the "why" not just the "what".
 - Do not create documentation files or README updates unless explicitly requested.
+
+## Board Context
+
+A read-only board context is mounted at ` + "`/workspace/.tasks/board.json`" + `.
+It contains a JSON manifest of all active tasks on the board including their
+prompts, statuses, results, and branch names. Your task is marked with
+` + "`\"is_self\": true`" + `.
+
+Use this to avoid conflicting changes with sibling tasks or reference
+completed work. If sibling worktrees are mounted, they appear under
+` + "`/workspace/.tasks/worktrees/<short-id>/<repo>/`" + ` as read-only directories.
 `
 
 // workspaceLayoutSection is appended to the default template with the actual

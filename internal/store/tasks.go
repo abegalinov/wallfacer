@@ -47,7 +47,7 @@ func (s *Store) GetTask(_ context.Context, id uuid.UUID) (*Task, error) {
 }
 
 // CreateTask creates a new task in backlog status and persists it.
-func (s *Store) CreateTask(_ context.Context, prompt string, timeout int) (*Task, error) {
+func (s *Store) CreateTask(_ context.Context, prompt string, timeout int, mountWorktrees bool) (*Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -62,14 +62,15 @@ func (s *Store) CreateTask(_ context.Context, prompt string, timeout int) (*Task
 
 	now := time.Now()
 	task := &Task{
-		ID:        uuid.New(),
-		Prompt:    prompt,
-		Status:    "backlog",
-		Turns:     0,
-		Timeout:   timeout,
-		Position:  maxPos + 1,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:             uuid.New(),
+		Prompt:         prompt,
+		Status:         "backlog",
+		Turns:          0,
+		Timeout:        timeout,
+		MountWorktrees: mountWorktrees,
+		Position:       maxPos + 1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	taskDir := filepath.Join(s.dir, task.ID.String())
@@ -209,8 +210,8 @@ func (s *Store) UpdateTaskPosition(_ context.Context, id uuid.UUID, position int
 	return nil
 }
 
-// UpdateTaskBacklog edits prompt, timeout, and fresh_start for backlog tasks.
-func (s *Store) UpdateTaskBacklog(_ context.Context, id uuid.UUID, prompt *string, timeout *int, freshStart *bool) error {
+// UpdateTaskBacklog edits prompt, timeout, fresh_start, and mount_worktrees for backlog tasks.
+func (s *Store) UpdateTaskBacklog(_ context.Context, id uuid.UUID, prompt *string, timeout *int, freshStart *bool, mountWorktrees *bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -226,6 +227,9 @@ func (s *Store) UpdateTaskBacklog(_ context.Context, id uuid.UUID, prompt *strin
 	}
 	if freshStart != nil {
 		t.FreshStart = *freshStart
+	}
+	if mountWorktrees != nil {
+		t.MountWorktrees = *mountWorktrees
 	}
 	t.UpdatedAt = time.Now()
 	if err := s.saveTask(id, t); err != nil {

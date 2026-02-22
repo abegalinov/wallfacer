@@ -29,8 +29,9 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 // CreateTask creates a new task in backlog status.
 func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Prompt  string `json:"prompt"`
-		Timeout int    `json:"timeout"`
+		Prompt         string `json:"prompt"`
+		Timeout        int    `json:"timeout"`
+		MountWorktrees bool   `json:"mount_worktrees"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -41,7 +42,7 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.store.CreateTask(r.Context(), req.Prompt, req.Timeout)
+	task, err := h.store.CreateTask(r.Context(), req.Prompt, req.Timeout, req.MountWorktrees)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -59,11 +60,12 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 // UpdateTask handles PATCH requests: status transitions, position, prompt, etc.
 func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	var req struct {
-		Status     *string `json:"status"`
-		Position   *int    `json:"position"`
-		Prompt     *string `json:"prompt"`
-		Timeout    *int    `json:"timeout"`
-		FreshStart *bool   `json:"fresh_start"`
+		Status         *string `json:"status"`
+		Position       *int    `json:"position"`
+		Prompt         *string `json:"prompt"`
+		Timeout        *int    `json:"timeout"`
+		FreshStart     *bool   `json:"fresh_start"`
+		MountWorktrees *bool   `json:"mount_worktrees"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -76,9 +78,9 @@ func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request, id uuid.UUI
 		return
 	}
 
-	// Allow editing prompt, timeout, and fresh_start for backlog tasks.
-	if task.Status == "backlog" && (req.Prompt != nil || req.Timeout != nil || req.FreshStart != nil) {
-		if err := h.store.UpdateTaskBacklog(r.Context(), id, req.Prompt, req.Timeout, req.FreshStart); err != nil {
+	// Allow editing prompt, timeout, fresh_start, and mount_worktrees for backlog tasks.
+	if task.Status == "backlog" && (req.Prompt != nil || req.Timeout != nil || req.FreshStart != nil || req.MountWorktrees != nil) {
+		if err := h.store.UpdateTaskBacklog(r.Context(), id, req.Prompt, req.Timeout, req.FreshStart, req.MountWorktrees); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

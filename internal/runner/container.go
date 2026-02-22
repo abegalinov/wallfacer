@@ -38,7 +38,17 @@ type claudeOutput struct {
 // buildContainerArgs constructs the full argument list for the container run command.
 // It is a pure function of runner configuration and the supplied parameters,
 // which makes it easy to unit-test without actually launching a container.
-func (r *Runner) buildContainerArgs(containerName, prompt, sessionID string, worktreeOverrides map[string]string) []string {
+//
+// boardDir, when non-empty, is a host directory containing board.json that
+// will be mounted read-only at /workspace/.tasks/ inside the container.
+// siblingMounts maps shortID → (repoPath → worktreePath) for read-only
+// sibling worktree mounts under /workspace/.tasks/worktrees/.
+func (r *Runner) buildContainerArgs(
+	containerName, prompt, sessionID string,
+	worktreeOverrides map[string]string,
+	boardDir string,
+	siblingMounts map[string]map[string]string,
+) []string {
 	args := []string{"run", "--rm", "--network=host", "--name", containerName}
 
 	if r.envFile != "" {
@@ -97,6 +107,20 @@ func (r *Runner) buildContainerArgs(containerName, prompt, sessionID string, wor
 		}
 	}
 
+	// Board context: mount board.json read-only at /workspace/.tasks/.
+	if boardDir != "" {
+		args = append(args, "-v", boardDir+":/workspace/.tasks:z,ro")
+	}
+
+	// Sibling worktrees: mount each eligible sibling's worktrees read-only.
+	for shortID, repos := range siblingMounts {
+		for repoPath, wtPath := range repos {
+			basename := filepath.Base(repoPath)
+			containerPath := "/workspace/.tasks/worktrees/" + shortID + "/" + basename
+			args = append(args, "-v", wtPath+":"+containerPath+":z,ro")
+		}
+	}
+
 	// When there is exactly one workspace, set CWD directly into it so
 	// Claude operates in the repo directory by default. For multiple
 	// workspaces keep CWD at /workspace so all repos are accessible.
@@ -136,13 +160,15 @@ func (r *Runner) runContainer(
 	taskID uuid.UUID,
 	prompt, sessionID string,
 	worktreeOverrides map[string]string,
+	boardDir string,
+	siblingMounts map[string]map[string]string,
 ) (*claudeOutput, []byte, []byte, error) {
 	containerName := "wallfacer-" + taskID.String()
 
 	// Remove any leftover container from a previous interrupted run.
 	exec.Command(r.command, "rm", "-f", containerName).Run()
 
-	args := r.buildContainerArgs(containerName, prompt, sessionID, worktreeOverrides)
+	args := r.buildContainerArgs(containerName, prompt, sessionID, worktreeOverrides, boardDir, siblingMounts)
 
 	cmd := exec.CommandContext(ctx, r.command, args...)
 	var stdout, stderr bytes.Buffer

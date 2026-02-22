@@ -240,6 +240,10 @@
             <option value="1440">24 hours</option>
           </select>
         </div>
+        <div class="flex items-center gap-2 mt-1">
+          <input type="checkbox" id="new-mount-worktrees" style="cursor:pointer;accent-color:var(--accent);">
+          <label for="new-mount-worktrees" class="text-xs text-v-muted" style="cursor:pointer;">Mount sibling worktrees (read-only)</label>
+        </div>
       </div>
       <div id="col-backlog" class="space-y-2" data-status="backlog"></div>
     </div>
@@ -333,6 +337,10 @@
             <div id="modal-edit-resume-row" class="hidden flex items-center gap-2 mt-2">
               <input type="checkbox" id="modal-edit-resume" onchange="saveResumeOption(this.checked)" style="cursor:pointer;accent-color:var(--accent);">
               <label for="modal-edit-resume" class="text-xs text-v-secondary" style="cursor:pointer;">Resume previous session</label>
+            </div>
+            <div class="flex items-center gap-2 mt-2">
+              <input type="checkbox" id="modal-edit-mount-worktrees" onchange="scheduleBacklogSave()" style="cursor:pointer;accent-color:var(--accent);">
+              <label for="modal-edit-mount-worktrees" class="text-xs text-v-secondary" style="cursor:pointer;">Mount sibling worktrees (read-only)</label>
             </div>
           </div>
 

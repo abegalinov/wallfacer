@@ -189,6 +189,7 @@ function updateCard(card, t) {
         ${showSpinner ? '<span class="spinner"></span>' : ''}
       </div>
       <div class="flex items-center gap-1.5">
+        ${t.mount_worktrees ? '<span class="text-[10px] text-v-muted" title="Sibling worktrees mounted">worktrees</span>' : ''}
         <span class="text-[10px] text-v-muted" title="Timeout">${formatTimeout(t.timeout)}</span>
         <span class="text-[10px] text-v-muted">${timeAgo(t.created_at)}</span>
       </div>

@@ -182,6 +182,7 @@ async function openModal(id) {
     } else {
       resumeRow.classList.add('hidden');
     }
+    document.getElementById('modal-edit-mount-worktrees').checked = !!task.mount_worktrees;
   } else {
     const promptRaw = document.getElementById('modal-prompt');
     const promptRendered = document.getElementById('modal-prompt-rendered');
