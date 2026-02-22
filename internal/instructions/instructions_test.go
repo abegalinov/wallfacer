@@ -56,12 +56,23 @@ func TestInstructionsKeyLength(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestBuildInstructionsContentDefault verifies that when no workspace
-// CLAUDE.md files exist the output is exactly the default template.
+// CLAUDE.md files exist the output contains the default template and
+// workspace layout section but no per-repo instructions sections.
 func TestBuildInstructionsContentDefault(t *testing.T) {
 	dir := t.TempDir() // no CLAUDE.md inside
 	content := BuildContent([]string{dir})
-	if content != defaultTemplate {
-		t.Fatalf("expected default template only, got:\n%s", content)
+	if !strings.HasPrefix(content, defaultTemplate) {
+		t.Fatal("content should start with the default template")
+	}
+	if !strings.Contains(content, "## Workspace Layout") {
+		t.Fatal("content should include workspace layout section")
+	}
+	name := filepath.Base(dir)
+	if !strings.Contains(content, "/workspace/"+name+"/") {
+		t.Fatalf("content should list workspace %q", name)
+	}
+	if strings.Contains(content, "## Instructions from") {
+		t.Fatal("content should not include per-repo instructions when no CLAUDE.md exists")
 	}
 }
 
@@ -92,12 +103,15 @@ func TestBuildInstructionsContentWithWorkspaceCLAUDE(t *testing.T) {
 }
 
 // TestBuildInstructionsContentMissingCLAUDE verifies that a workspace without
-// a CLAUDE.md is silently skipped (no error, just default template).
+// a CLAUDE.md is silently skipped (no per-repo instructions section appended).
 func TestBuildInstructionsContentMissingCLAUDE(t *testing.T) {
 	dir := t.TempDir() // no CLAUDE.md
 	content := BuildContent([]string{dir})
-	if content != defaultTemplate {
-		t.Fatalf("workspace without CLAUDE.md should produce only default template")
+	if !strings.HasPrefix(content, defaultTemplate) {
+		t.Fatal("content should start with the default template")
+	}
+	if strings.Contains(content, "## Instructions from") {
+		t.Fatal("workspace without CLAUDE.md should not produce per-repo instructions section")
 	}
 }
 

@@ -26,6 +26,17 @@ This file provides guidance to Claude Code when working on tasks in this workspa
 - Do not create documentation files or README updates unless explicitly requested.
 `
 
+// workspaceLayoutSection is appended to the default template with the actual
+// workspace basenames filled in, so Claude knows exactly where code lives.
+const workspaceLayoutSection = `
+## Workspace Layout
+
+Workspaces are mounted under ` + "`/workspace/<name>/`" + `. **All file operations
+(read, write, create) MUST target paths inside these directories.** Do NOT
+create files or directories directly under ` + "`/workspace/`" + `.
+
+`
+
 // Key returns a stable 16-char hex key for a given set of workspace paths.
 // The key is derived from the SHA-256 of the sorted, colon-joined absolute paths,
 // so the same set of workspaces always maps to the same file regardless of order.
@@ -89,6 +100,14 @@ func Reinit(configDir string, workspaces []string) (string, error) {
 func BuildContent(workspaces []string) string {
 	var sb strings.Builder
 	sb.WriteString(defaultTemplate)
+
+	// Append workspace layout section so Claude knows where each repo lives.
+	sb.WriteString(workspaceLayoutSection)
+	for _, ws := range workspaces {
+		name := filepath.Base(ws)
+		sb.WriteString(fmt.Sprintf("- `/workspace/%s/`\n", name))
+	}
+	sb.WriteByte('\n')
 
 	for _, ws := range workspaces {
 		claudePath := filepath.Join(ws, "CLAUDE.md")

@@ -56,6 +56,7 @@ func (r *Runner) buildContainerArgs(containerName, prompt, sessionID string, wor
 	}
 
 	// Mount workspaces, substituting per-task worktree paths where available.
+	var basenames []string
 	if r.workspaces != "" {
 		for _, ws := range strings.Fields(r.workspaces) {
 			ws = strings.TrimSpace(ws)
@@ -71,6 +72,7 @@ func (r *Runner) buildContainerArgs(containerName, prompt, sessionID string, wor
 			if basename == "" && len(parts) > 1 {
 				basename = parts[len(parts)-2]
 			}
+			basenames = append(basenames, basename)
 			args = append(args, "-v", hostPath+":/workspace/"+basename+":z")
 
 			// Git worktrees have a .git file (not directory) that references
@@ -86,7 +88,14 @@ func (r *Runner) buildContainerArgs(containerName, prompt, sessionID string, wor
 		}
 	}
 
-	args = append(args, "-w", "/workspace", r.sandboxImage)
+	// When there is exactly one workspace, set CWD directly into it so
+	// Claude operates in the repo directory by default. For multiple
+	// workspaces keep CWD at /workspace so all repos are accessible.
+	workdir := "/workspace"
+	if len(basenames) == 1 {
+		workdir = "/workspace/" + basenames[0]
+	}
+	args = append(args, "-w", workdir, r.sandboxImage)
 	args = append(args, "-p", prompt, "--verbose", "--output-format", "stream-json")
 	if model := r.modelFromEnv(); model != "" {
 		args = append(args, "--model", model)
