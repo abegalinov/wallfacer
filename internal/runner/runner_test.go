@@ -328,7 +328,10 @@ func TestHostStageAndCommit(t *testing.T) {
 	}
 
 	// Run host-side commit.
-	committed := runner.hostStageAndCommit(taskID, worktreePaths, "Add hello world file")
+	committed, err := runner.hostStageAndCommit(taskID, worktreePaths, "Add hello world file")
+	if err != nil {
+		t.Fatalf("hostStageAndCommit error: %v", err)
+	}
 	if !committed {
 		t.Fatal("expected commit to be created")
 	}
@@ -360,7 +363,10 @@ func TestHostStageAndCommitNoChanges(t *testing.T) {
 	t.Cleanup(func() { runner.cleanupWorktrees(taskID, worktreePaths, branchName) })
 
 	// No changes made — commit should be a no-op.
-	committed := runner.hostStageAndCommit(taskID, worktreePaths, "Nothing to do")
+	committed, err := runner.hostStageAndCommit(taskID, worktreePaths, "Nothing to do")
+	if err != nil {
+		t.Fatalf("hostStageAndCommit error: %v", err)
+	}
 	if committed {
 		t.Fatal("expected no commit when there are no changes")
 	}
@@ -750,10 +756,11 @@ func TestParallelTasksSameRepo(t *testing.T) {
 	}
 
 	// Verify linear history: B's commit is on top of A's.
+	// Expect 3 commits: initial + task A + task B (progress log was removed).
 	log := gitRun(t, repo, "log", "--oneline")
 	lines := strings.Split(log, "\n")
-	if len(lines) < 4 {
-		t.Fatalf("expected at least 4 commits for two tasks, got %d:\n%s", len(lines), log)
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 commits for two tasks, got %d:\n%s", len(lines), log)
 	}
 
 	// Verify no merge commits (all fast-forward).

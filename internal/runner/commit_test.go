@@ -222,7 +222,10 @@ func TestHostStageAndCommitUsesGeneratedMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	committed := runner.hostStageAndCommit(taskID, worktreePaths, "Add authentication")
+	committed, err := runner.hostStageAndCommit(taskID, worktreePaths, "Add authentication")
+	if err != nil {
+		t.Fatalf("hostStageAndCommit error: %v", err)
+	}
 	if !committed {
 		t.Fatal("expected a commit to be created")
 	}
@@ -271,7 +274,10 @@ func TestHostStageAndCommitFallsBackOnContainerFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	committed := runner.hostStageAndCommit(taskID, worktreePaths, "Add new feature")
+	committed, err := runner.hostStageAndCommit(taskID, worktreePaths, "Add new feature")
+	if err != nil {
+		t.Fatalf("hostStageAndCommit error: %v", err)
+	}
 	if !committed {
 		t.Fatal("expected a commit to be created even when container fails")
 	}

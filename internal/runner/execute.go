@@ -153,13 +153,18 @@ func (r *Runner) Run(taskID uuid.UUID, prompt, sessionID string, resumedFromWait
 		switch output.StopReason {
 		case "end_turn":
 			statusSet = true
-			r.store.UpdateTaskStatus(bgCtx, taskID, "done")
-			r.store.InsertEvent(bgCtx, taskID, "state_change", map[string]string{
-				"from": "in_progress", "to": "done",
-			})
 			if err := r.commit(ctx, taskID, sessionID, turns, worktreePaths, branchName); err != nil {
+				r.store.UpdateTaskStatus(bgCtx, taskID, "failed")
 				r.store.InsertEvent(bgCtx, taskID, "error", map[string]string{
 					"error": "commit failed: " + err.Error(),
+				})
+				r.store.InsertEvent(bgCtx, taskID, "state_change", map[string]string{
+					"from": "in_progress", "to": "failed",
+				})
+			} else {
+				r.store.UpdateTaskStatus(bgCtx, taskID, "done")
+				r.store.InsertEvent(bgCtx, taskID, "state_change", map[string]string{
+					"from": "in_progress", "to": "done",
 				})
 			}
 			return

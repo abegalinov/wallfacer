@@ -55,7 +55,13 @@ func (r *Runner) commit(
 	if task != nil {
 		taskPrompt = task.Prompt
 	}
-	r.hostStageAndCommit(taskID, worktreePaths, taskPrompt)
+	if _, stageErr := r.hostStageAndCommit(taskID, worktreePaths, taskPrompt); stageErr != nil {
+		logger.Runner.Error("host stage/commit failed", "task", taskID, "error", stageErr)
+		r.store.InsertEvent(bgCtx, taskID, "error", map[string]string{
+			"error": "stage/commit failed: " + stageErr.Error(),
+		})
+		return fmt.Errorf("stage and commit: %w", stageErr)
+	}
 
 	// Phase 2: host-side rebase and merge for each git worktree.
 	r.store.InsertEvent(bgCtx, taskID, "system", map[string]string{
@@ -95,7 +101,8 @@ func (r *Runner) commit(
 
 // hostStageAndCommit stages and commits all uncommitted changes in each
 // worktree directly on the host. Returns true if any new commits were created.
-func (r *Runner) hostStageAndCommit(taskID uuid.UUID, worktreePaths map[string]string, prompt string) bool {
+// Returns an error if changes were present but could not be staged or committed.
+func (r *Runner) hostStageAndCommit(taskID uuid.UUID, worktreePaths map[string]string, prompt string) (bool, error) {
 	// First pass: stage all changes and collect diff stats for each worktree
 	// that has pending changes.
 	type pendingCommit struct {
@@ -105,10 +112,12 @@ func (r *Runner) hostStageAndCommit(taskID uuid.UUID, worktreePaths map[string]s
 		recentLog    string
 	}
 	var pending []pendingCommit
+	var errs []string
 
 	for repoPath, worktreePath := range worktreePaths {
 		if out, err := exec.Command("git", "-C", worktreePath, "add", "-A").CombinedOutput(); err != nil {
 			logger.Runner.Warn("host commit: git add -A", "repo", repoPath, "error", err, "output", string(out))
+			errs = append(errs, fmt.Sprintf("git add in %s: %v", repoPath, err))
 			continue
 		}
 
@@ -124,7 +133,10 @@ func (r *Runner) hostStageAndCommit(taskID uuid.UUID, worktreePaths map[string]s
 	}
 
 	if len(pending) == 0 {
-		return false
+		if len(errs) > 0 {
+			return false, fmt.Errorf("staging failed: %s", strings.Join(errs, "; "))
+		}
+		return false, nil
 	}
 
 	// Build combined diff stat and git log context across all worktrees, then
@@ -148,12 +160,17 @@ func (r *Runner) hostStageAndCommit(taskID uuid.UUID, worktreePaths map[string]s
 	for _, p := range pending {
 		if out, err := exec.Command("git", "-C", p.worktreePath, "commit", "-m", msg).CombinedOutput(); err != nil {
 			logger.Runner.Warn("host commit: git commit", "repo", p.repoPath, "error", err, "output", string(out))
+			errs = append(errs, fmt.Sprintf("git commit in %s: %v", p.repoPath, err))
 			continue
 		}
 		committed = true
 		logger.Runner.Info("host commit: committed changes", "repo", p.repoPath)
 	}
-	return committed
+
+	if !committed && len(errs) > 0 {
+		return false, fmt.Errorf("commit failed: %s", strings.Join(errs, "; "))
+	}
+	return committed, nil
 }
 
 // generateCommitMessage runs a lightweight container to produce a descriptive
