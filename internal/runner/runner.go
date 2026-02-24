@@ -84,6 +84,7 @@ type RunnerConfig struct {
 	Workspaces       string // space-separated workspace paths
 	WorktreesDir     string
 	InstructionsPath string
+	DefaultBranch    string // override for git default branch (auto-detected if empty)
 }
 
 // Runner orchestrates Claude Code container execution for tasks.
@@ -96,6 +97,7 @@ type Runner struct {
 	workspaces       string
 	worktreesDir     string
 	instructionsPath string
+	defaultBranch    string   // override for git default branch (auto-detected if empty)
 	repoMu           sync.Map // per-repo *sync.Mutex for serializing rebase+merge
 }
 
@@ -109,6 +111,7 @@ func NewRunner(s *store.Store, cfg RunnerConfig) *Runner {
 		workspaces:       cfg.Workspaces,
 		worktreesDir:     cfg.WorktreesDir,
 		instructionsPath: cfg.InstructionsPath,
+		defaultBranch:    cfg.DefaultBranch,
 	}
 }
 
@@ -128,6 +131,11 @@ func (r *Runner) Workspaces() []string {
 		return nil
 	}
 	return strings.Fields(r.workspaces)
+}
+
+// DefaultBranchOverride returns the configured default branch override, or empty if not set.
+func (r *Runner) DefaultBranchOverride() string {
+	return r.defaultBranch
 }
 
 // repoLock returns a per-repo mutex, creating one on first access.

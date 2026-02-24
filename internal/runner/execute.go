@@ -267,7 +267,7 @@ func (r *Runner) SyncWorktrees(taskID uuid.UUID, sessionID, prevStatus string) {
 			continue
 		}
 
-		defBranch, err := gitutil.DefaultBranch(repoPath)
+		defBranch, err := gitutil.DefaultBranchWithOverride(repoPath, r.defaultBranch)
 		if err != nil {
 			statusSet = true
 			r.failSync(bgCtx, taskID, sessionID, task.Turns,
@@ -275,7 +275,7 @@ func (r *Runner) SyncWorktrees(taskID uuid.UUID, sessionID, prevStatus string) {
 			return
 		}
 
-		n, _ := gitutil.CommitsBehind(repoPath, worktreePath)
+		n, _ := gitutil.CommitsBehind(repoPath, worktreePath, r.defaultBranch)
 		if n == 0 {
 			r.store.InsertEvent(bgCtx, taskID, store.EventTypeSystem, map[string]string{
 				"result": fmt.Sprintf("%s is already up to date with %s.", filepath.Base(repoPath), defBranch),
@@ -291,7 +291,7 @@ func (r *Runner) SyncWorktrees(taskID uuid.UUID, sessionID, prevStatus string) {
 
 		var rebaseErr error
 		for attempt := 1; attempt <= maxRebaseRetries; attempt++ {
-			rebaseErr = gitutil.RebaseOntoDefault(repoPath, worktreePath)
+			rebaseErr = gitutil.RebaseOntoDefault(repoPath, worktreePath, r.defaultBranch)
 			if rebaseErr == nil {
 				break
 			}

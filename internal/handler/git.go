@@ -177,7 +177,7 @@ func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 						"show", commitHash).Output()
 				}
 			} else if task.BranchName != "" {
-				if defBranch, err := gitutil.DefaultBranch(repoPath); err == nil {
+				if defBranch, err := gitutil.DefaultBranchWithOverride(repoPath, h.runner.DefaultBranchOverride()); err == nil {
 					// Use merge-base so we only see changes introduced on the task
 					// branch, not the inverse of commits that advanced main.
 					if base, mbErr := gitutil.MergeBase(repoPath, defBranch, task.BranchName); mbErr == nil {
@@ -198,7 +198,7 @@ func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 			continue
 		}
 
-		defBranch, err := gitutil.DefaultBranch(repoPath)
+		defBranch, err := gitutil.DefaultBranchWithOverride(repoPath, h.runner.DefaultBranchOverride())
 		if err != nil {
 			continue
 		}
@@ -230,7 +230,7 @@ func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 			}
 			combined.Write(out)
 		}
-		if n, err := gitutil.CommitsBehind(repoPath, worktreePath); err == nil && n > 0 {
+		if n, err := gitutil.CommitsBehind(repoPath, worktreePath, h.runner.DefaultBranchOverride()); err == nil && n > 0 {
 			behindCounts[filepath.Base(repoPath)] = n
 		}
 	}

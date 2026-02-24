@@ -36,6 +36,7 @@ func runServer(configDir string, args []string) {
 	containerCmd := fs.String("container", envOrDefault("CONTAINER_CMD", "/opt/podman/bin/podman"), "container runtime command")
 	sandboxImage := fs.String("image", envOrDefault("SANDBOX_IMAGE", defaultSandboxImage), "sandbox container image")
 	envFile := fs.String("env-file", envOrDefault("ENV_FILE", filepath.Join(configDir, ".env")), "env file for container (Claude token)")
+	defaultBranch := fs.String("default-branch", envOrDefault("DEFAULT_BRANCH", ""), "default git branch override (auto-detected if not set)")
 	noBrowser := fs.Bool("no-browser", false, "do not open browser on start")
 
 	fs.Usage = func() {
@@ -43,6 +44,10 @@ func runServer(configDir string, args []string) {
 		fmt.Fprintf(os.Stderr, "Start the Kanban server and open the web UI.\n\n")
 		fmt.Fprintf(os.Stderr, "Positional arguments:\n")
 		fmt.Fprintf(os.Stderr, "  workspace    directories to mount in the sandbox (default: current directory)\n\n")
+		fmt.Fprintf(os.Stderr, "Examples:\n")
+		fmt.Fprintf(os.Stderr, "  wallfacer run                              # current directory, auto-detect default branch\n")
+		fmt.Fprintf(os.Stderr, "  wallfacer run --default-branch=develop     # use 'develop' as default branch\n")
+		fmt.Fprintf(os.Stderr, "  wallfacer run -addr :9090 ~/myproject      # custom port and workspace\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		fs.PrintDefaults()
 	}
@@ -111,6 +116,7 @@ func runServer(configDir string, args []string) {
 		Workspaces:       strings.Join(workspaces, " "),
 		WorktreesDir:     worktreesDir,
 		InstructionsPath: instructionsPath,
+		DefaultBranch:    *defaultBranch,
 	})
 
 	r.PruneOrphanedWorktrees(s)

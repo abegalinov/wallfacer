@@ -70,7 +70,7 @@ func TestCommitsBehind(t *testing.T) {
 		gitRun(t, repo, "worktree", "add", "-b", "task", wtDir, "HEAD")
 		t.Cleanup(func() { RemoveWorktree(repo, wtDir, "task") })
 
-		n, err := CommitsBehind(repo, wtDir)
+		n, err := CommitsBehind(repo, wtDir, "")
 		if err != nil || n != 0 {
 			t.Errorf("CommitsBehind = %d, %v; want 0, nil", n, err)
 		}
@@ -88,7 +88,7 @@ func TestCommitsBehind(t *testing.T) {
 			gitRun(t, repo, "commit", "-m", f)
 		}
 
-		n, err := CommitsBehind(repo, wtDir)
+		n, err := CommitsBehind(repo, wtDir, "")
 		if err != nil || n != 2 {
 			t.Errorf("CommitsBehind = %d, %v; want 2, nil", n, err)
 		}
@@ -96,7 +96,7 @@ func TestCommitsBehind(t *testing.T) {
 
 	t.Run("non-git worktree path returns error", func(t *testing.T) {
 		repo := setupRepo(t)
-		if _, err := CommitsBehind(repo, t.TempDir()); err == nil {
+		if _, err := CommitsBehind(repo, t.TempDir(), ""); err == nil {
 			t.Error("expected error, got nil")
 		}
 	})
@@ -149,7 +149,7 @@ func TestRebaseOntoDefault(t *testing.T) {
 		gitRun(t, wtDir, "add", ".")
 		gitRun(t, wtDir, "commit", "-m", "task change")
 
-		if err := RebaseOntoDefault(repo, wtDir); err != nil {
+		if err := RebaseOntoDefault(repo, wtDir, ""); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
@@ -168,7 +168,7 @@ func TestRebaseOntoDefault(t *testing.T) {
 		gitRun(t, wtDir, "add", ".")
 		gitRun(t, wtDir, "commit", "-m", "task: change file.txt")
 
-		err := RebaseOntoDefault(repo, wtDir)
+		err := RebaseOntoDefault(repo, wtDir, "")
 		if !errors.Is(err, ErrConflict) {
 			t.Errorf("expected ErrConflict, got %v", err)
 		}
@@ -184,7 +184,7 @@ func TestFFMerge(t *testing.T) {
 		gitRun(t, repo, "commit", "-m", "task commit")
 		gitRun(t, repo, "checkout", "main")
 
-		if err := FFMerge(repo, "task"); err != nil {
+		if err := FFMerge(repo, "task", ""); err != nil {
 			t.Errorf("FFMerge failed: %v", err)
 		}
 	})
@@ -201,7 +201,7 @@ func TestFFMerge(t *testing.T) {
 		gitRun(t, repo, "add", ".")
 		gitRun(t, repo, "commit", "-m", "diverging main commit")
 
-		if err := FFMerge(repo, "task"); err == nil {
+		if err := FFMerge(repo, "task", ""); err == nil {
 			t.Error("expected error for non-ff merge, got nil")
 		}
 	})

@@ -15,6 +15,15 @@ func IsGitRepo(path string) bool {
 	return exec.Command("git", "-C", path, "rev-parse", "--git-dir").Run() == nil
 }
 
+// DefaultBranchWithOverride returns the override if non-empty, otherwise
+// auto-detects the default branch using DefaultBranch.
+func DefaultBranchWithOverride(repoPath, override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	return DefaultBranch(repoPath)
+}
+
 // DefaultBranch returns the default branch name for a repo (tries origin/HEAD,
 // falls back to the current local HEAD branch, then "main").
 func DefaultBranch(repoPath string) (string, error) {

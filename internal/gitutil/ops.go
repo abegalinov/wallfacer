@@ -10,8 +10,9 @@ import (
 // RebaseOntoDefault rebases the task branch (currently checked out in worktreePath)
 // onto the default branch of repoPath. On conflict it aborts the rebase and returns
 // ErrConflict so the caller can invoke conflict resolution and retry.
-func RebaseOntoDefault(repoPath, worktreePath string) error {
-	defBranch, err := DefaultBranch(repoPath)
+// If defaultBranchOverride is non-empty, it is used instead of auto-detecting.
+func RebaseOntoDefault(repoPath, worktreePath, defaultBranchOverride string) error {
+	defBranch, err := DefaultBranchWithOverride(repoPath, defaultBranchOverride)
 	if err != nil {
 		return err
 	}
@@ -28,8 +29,9 @@ func RebaseOntoDefault(repoPath, worktreePath string) error {
 }
 
 // FFMerge fast-forward merges branchName into the default branch of repoPath.
-func FFMerge(repoPath, branchName string) error {
-	defBranch, err := DefaultBranch(repoPath)
+// If defaultBranchOverride is non-empty, it is used instead of auto-detecting.
+func FFMerge(repoPath, branchName, defaultBranchOverride string) error {
+	defBranch, err := DefaultBranchWithOverride(repoPath, defaultBranchOverride)
 	if err != nil {
 		return err
 	}
@@ -45,8 +47,9 @@ func FFMerge(repoPath, branchName string) error {
 
 // CommitsBehind returns the number of commits the default branch has ahead of
 // the worktree's HEAD (i.e. how many commits the task branch is behind).
-func CommitsBehind(repoPath, worktreePath string) (int, error) {
-	defBranch, err := DefaultBranch(repoPath)
+// If defaultBranchOverride is non-empty, it is used instead of auto-detecting.
+func CommitsBehind(repoPath, worktreePath, defaultBranchOverride string) (int, error) {
+	defBranch, err := DefaultBranchWithOverride(repoPath, defaultBranchOverride)
 	if err != nil {
 		return 0, err
 	}

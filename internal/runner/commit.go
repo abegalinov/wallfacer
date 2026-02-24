@@ -323,7 +323,7 @@ func (r *Runner) rebaseAndMergeOne(
 		return nil
 	}
 
-	defBranch, err := gitutil.DefaultBranch(repoPath)
+	defBranch, err := gitutil.DefaultBranchWithOverride(repoPath, r.defaultBranch)
 	if err != nil {
 		return fmt.Errorf("defaultBranch for %s: %w", repoPath, err)
 	}
@@ -355,7 +355,7 @@ func (r *Runner) rebaseAndMergeOne(
 			"result": fmt.Sprintf("Rebasing %s onto %s (attempt %d/%d)...", repoPath, defBranch, attempt, maxRebaseRetries),
 		})
 
-		rebaseErr = gitutil.RebaseOntoDefault(repoPath, worktreePath)
+		rebaseErr = gitutil.RebaseOntoDefault(repoPath, worktreePath, r.defaultBranch)
 		if rebaseErr == nil {
 			break
 		}
@@ -385,7 +385,7 @@ func (r *Runner) rebaseAndMergeOne(
 	r.store.InsertEvent(bgCtx, taskID, store.EventTypeSystem, map[string]string{
 		"result": fmt.Sprintf("Fast-forward merging %s into %s...", branchName, defBranch),
 	})
-	if err := gitutil.FFMerge(repoPath, branchName); err != nil {
+	if err := gitutil.FFMerge(repoPath, branchName, r.defaultBranch); err != nil {
 		return fmt.Errorf("ff-merge %s: %w", repoPath, err)
 	}
 
