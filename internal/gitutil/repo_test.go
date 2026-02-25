@@ -50,6 +50,26 @@ func TestDefaultBranch(t *testing.T) {
 		}
 	})
 
+	t.Run("prefers current branch over origin/HEAD", func(t *testing.T) {
+		origin := t.TempDir()
+		gitRun(t, origin, "init", "--bare", "-b", "main")
+		repo := setupRepo(t)
+		gitRun(t, repo, "remote", "add", "origin", origin)
+		gitRun(t, repo, "push", "origin", "main")
+		gitRun(t, repo, "remote", "set-head", "origin", "main")
+
+		// Switch to a different branch — DefaultBranch should return it,
+		// not origin/HEAD (which is "main").
+		gitRun(t, repo, "checkout", "-b", "develop")
+		branch, err := DefaultBranch(repo)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if branch != "develop" {
+			t.Errorf("got %q, want %q", branch, "develop")
+		}
+	})
+
 	t.Run("detached HEAD falls back to main", func(t *testing.T) {
 		repo := setupRepo(t)
 		hash := gitRun(t, repo, "rev-parse", "HEAD")
