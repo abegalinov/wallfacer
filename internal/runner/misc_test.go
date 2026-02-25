@@ -715,3 +715,117 @@ func TestRunContainerContextCancelled(t *testing.T) {
 		t.Fatalf("expected 'container terminated' error, got: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// parseContainerList — Podman vs Docker JSON format handling
+// ---------------------------------------------------------------------------
+
+// TestParseContainerListPodmanFormat verifies parsing of Podman's JSON array output.
+func TestParseContainerListPodmanFormat(t *testing.T) {
+	// Podman outputs a JSON array with Names as []string and Created as int64.
+	input := []byte(`[
+		{"Id":"abc123","Names":["wallfacer-task1"],"Image":"wallfacer:latest","State":"running","Status":"Up 5 minutes","Created":1700000000},
+		{"Id":"def456","Names":["wallfacer-task2"],"Image":"wallfacer:latest","State":"exited","Status":"Exited (0) 1 hour ago","Created":1699990000}
+	]`)
+
+	containers, err := parseContainerList(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(containers) != 2 {
+		t.Fatalf("expected 2 containers, got %d", len(containers))
+	}
+	if containers[0].name() != "wallfacer-task1" {
+		t.Fatalf("expected name 'wallfacer-task1', got %q", containers[0].name())
+	}
+	if containers[0].createdUnix() != 1700000000 {
+		t.Fatalf("expected created 1700000000, got %d", containers[0].createdUnix())
+	}
+}
+
+// TestParseContainerListDockerFormat verifies parsing of Docker's NDJSON output.
+func TestParseContainerListDockerFormat(t *testing.T) {
+	// Docker outputs one JSON object per line with Names as a string.
+	input := []byte(`{"Id":"abc123","Names":"wallfacer-task1","Image":"wallfacer:latest","State":"running","Status":"Up 5 minutes","Created":1700000000}
+{"Id":"def456","Names":"wallfacer-task2","Image":"wallfacer:latest","State":"exited","Status":"Exited (0) 1 hour ago","Created":1699990000}`)
+
+	containers, err := parseContainerList(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(containers) != 2 {
+		t.Fatalf("expected 2 containers, got %d", len(containers))
+	}
+	if containers[0].name() != "wallfacer-task1" {
+		t.Fatalf("expected name 'wallfacer-task1', got %q", containers[0].name())
+	}
+	if containers[1].name() != "wallfacer-task2" {
+		t.Fatalf("expected name 'wallfacer-task2', got %q", containers[1].name())
+	}
+}
+
+// TestParseContainerListDockerSlashPrefix verifies that Docker's "/" prefix on names is stripped.
+func TestParseContainerListDockerSlashPrefix(t *testing.T) {
+	input := []byte(`{"Id":"abc123","Names":"/wallfacer-task1","Image":"img","State":"running","Status":"Up"}`)
+
+	containers, err := parseContainerList(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if containers[0].name() != "wallfacer-task1" {
+		t.Fatalf("expected name without slash prefix, got %q", containers[0].name())
+	}
+}
+
+// TestParseContainerListEmpty verifies that empty output returns nil.
+func TestParseContainerListEmpty(t *testing.T) {
+	for _, input := range [][]byte{nil, []byte(""), []byte("  \n  "), []byte("null")} {
+		containers, err := parseContainerList(input)
+		if err != nil {
+			t.Fatalf("unexpected error for input %q: %v", input, err)
+		}
+		if containers != nil {
+			t.Fatalf("expected nil for input %q, got %v", input, containers)
+		}
+	}
+}
+
+// TestContainerJSONNamePodman verifies name extraction from Podman's []string format.
+func TestContainerJSONNamePodman(t *testing.T) {
+	c := containerJSON{Names: []byte(`["foo","bar"]`)}
+	if c.name() != "foo" {
+		t.Fatalf("expected 'foo', got %q", c.name())
+	}
+}
+
+// TestContainerJSONNameDocker verifies name extraction from Docker's string format.
+func TestContainerJSONNameDocker(t *testing.T) {
+	c := containerJSON{Names: []byte(`"my-container"`)}
+	if c.name() != "my-container" {
+		t.Fatalf("expected 'my-container', got %q", c.name())
+	}
+}
+
+// TestContainerJSONNameNil verifies that nil Names returns empty string.
+func TestContainerJSONNameNil(t *testing.T) {
+	c := containerJSON{}
+	if c.name() != "" {
+		t.Fatalf("expected empty, got %q", c.name())
+	}
+}
+
+// TestContainerJSONCreatedFloat verifies Created as float64 (default JSON number).
+func TestContainerJSONCreatedFloat(t *testing.T) {
+	c := containerJSON{Created: float64(1700000000)}
+	if c.createdUnix() != 1700000000 {
+		t.Fatalf("expected 1700000000, got %d", c.createdUnix())
+	}
+}
+
+// TestContainerJSONCreatedNil verifies Created as nil returns 0.
+func TestContainerJSONCreatedNil(t *testing.T) {
+	c := containerJSON{}
+	if c.createdUnix() != 0 {
+		t.Fatalf("expected 0, got %d", c.createdUnix())
+	}
+}

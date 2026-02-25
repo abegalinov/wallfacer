@@ -58,7 +58,7 @@ func runEnvCheck(configDir string) {
 	fmt.Printf("Config directory:  %s\n", configDir)
 	fmt.Printf("Data directory:    %s\n", envOrDefault("DATA_DIR", filepath.Join(configDir, "data")))
 	fmt.Printf("Env file:          %s\n", envFile)
-	fmt.Printf("Container command: %s\n", envOrDefault("CONTAINER_CMD", "/opt/podman/bin/podman"))
+	fmt.Printf("Container command: %s\n", envOrDefault("CONTAINER_CMD", detectContainerRuntime()))
 	fmt.Printf("Sandbox image:     %s\n", envOrDefault("SANDBOX_IMAGE", defaultSandboxImage))
 	fmt.Println()
 
@@ -122,7 +122,7 @@ func runEnvCheck(configDir string) {
 		fmt.Printf("[ ] CLAUDE_CODE_MODEL not set (using Claude Code default)\n")
 	}
 
-	containerCmd := envOrDefault("CONTAINER_CMD", "/opt/podman/bin/podman")
+	containerCmd := envOrDefault("CONTAINER_CMD", detectContainerRuntime())
 	if _, err := exec.LookPath(containerCmd); err != nil {
 		fmt.Printf("[!] Container runtime not found: %s\n", containerCmd)
 	} else {
@@ -176,6 +176,26 @@ func envOrDefault(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// detectContainerRuntime returns the path to the container runtime binary.
+// It prefers /opt/podman/bin/podman, then falls back to "podman" and "docker"
+// on $PATH. Returns the hardcoded default if nothing is found.
+func detectContainerRuntime() string {
+	// Preferred: explicit podman installation.
+	if _, err := os.Stat("/opt/podman/bin/podman"); err == nil {
+		return "/opt/podman/bin/podman"
+	}
+	// Fallback: podman on $PATH.
+	if p, err := exec.LookPath("podman"); err == nil {
+		return p
+	}
+	// Fallback: docker on $PATH.
+	if p, err := exec.LookPath("docker"); err == nil {
+		return p
+	}
+	// Nothing found; return the traditional default so the error message is clear.
+	return "/opt/podman/bin/podman"
 }
 
 func openBrowser(url string) {

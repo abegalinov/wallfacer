@@ -102,12 +102,14 @@ All flags have env var fallbacks:
 |------|---------|---------|-------------|
 | `-addr` | `ADDR` | `:8080` | Listen address |
 | `-data` | `DATA_DIR` | `~/.wallfacer/data` | Data directory |
-| `-container` | `CONTAINER_CMD` | `/opt/podman/bin/podman` | Container runtime command |
+| `-container` | `CONTAINER_CMD` | auto-detected | Container runtime command (podman or docker) |
 | `-image` | `SANDBOX_IMAGE` | `wallfacer:latest` | Sandbox container image |
 | `-env-file` | `ENV_FILE` | `~/.wallfacer/.env` | Env file passed to containers |
 | `-no-browser` | — | `false` | Do not open browser on start |
 
 Positional arguments after flags are workspace directories to mount (defaults to current directory).
+
+The `-container` flag defaults to auto-detection: it checks `/opt/podman/bin/podman` first, then `podman` on `$PATH`, then `docker` on `$PATH`. Override with `CONTAINER_CMD` env var or `-container` flag to use a specific runtime.
 
 ### Environment File
 
