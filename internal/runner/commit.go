@@ -229,6 +229,9 @@ func (r *Runner) generateCommitMessage(taskID uuid.UUID, prompt, diffStat, recen
 		commitPrompt += "\nRecent commits (for style reference):\n" + recentLog
 	}
 	args = append(args, "-p", commitPrompt, "--output-format", "stream-json", "--verbose")
+	if model := r.modelFromEnv(); model != "" {
+		args = append(args, "--model", model)
+	}
 
 	cmd := exec.CommandContext(ctx, r.command, args...)
 	var stdout, stderr bytes.Buffer
