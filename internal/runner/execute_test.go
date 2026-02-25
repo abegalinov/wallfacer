@@ -533,16 +533,19 @@ func TestRunUsageAccumulation(t *testing.T) {
 	}
 }
 
-// TestRunCostMultiTurn verifies that per-invocation total_cost_usd values
-// are accumulated (summed) across turns. Each container invocation reports
-// its own cost; the store adds them together.
+// TestRunCostMultiTurn verifies that session-cumulative total_cost_usd and
+// usage token values are correctly converted to per-turn deltas, preventing
+// double-counting. Claude Code reports cumulative totals for the session;
+// on resumed sessions (--resume for max_tokens/pause_turn), each invocation
+// includes prior turns' totals.
 func TestRunCostMultiTurn(t *testing.T) {
 	repo := setupTestRepo(t)
-	// Turn 1: max_tokens with per-invocation cost 0.03
-	// Turn 2: end_turn with per-invocation cost 0.02
-	// Total should be 0.03 + 0.02 = 0.05.
+	// Turn 1: max_tokens with cumulative cost 0.03, tokens 100/50
+	// Turn 2: end_turn with cumulative cost 0.05, tokens 180/90
+	// Actual per-turn costs: 0.03 + 0.02 = 0.05
+	// Actual per-turn tokens: 100+80=180 input, 50+40=90 output
 	turn1 := `{"result":"partial","session_id":"s1","stop_reason":"max_tokens","is_error":false,"total_cost_usd":0.03,"usage":{"input_tokens":100,"output_tokens":50}}`
-	turn2 := `{"result":"done","session_id":"s1","stop_reason":"end_turn","is_error":false,"total_cost_usd":0.02,"usage":{"input_tokens":80,"output_tokens":40}}`
+	turn2 := `{"result":"done","session_id":"s1","stop_reason":"end_turn","is_error":false,"total_cost_usd":0.05,"usage":{"input_tokens":180,"output_tokens":90}}`
 	cmd := fakeStatefulCmd(t, []string{turn1, turn2})
 	s, r := setupRunnerWithCmd(t, []string{repo}, cmd)
 	ctx := context.Background()
@@ -555,15 +558,63 @@ func TestRunCostMultiTurn(t *testing.T) {
 	r.Run(task.ID, "prompt", "", false)
 
 	updated, _ := s.GetTask(ctx, task.ID)
-	// Cost should be 0.05 (0.03 + 0.02).
+	// Cost should be 0.05 (delta: 0.03 + 0.02), NOT 0.08 (naive sum: 0.03 + 0.05).
 	if updated.Usage.CostUSD < 0.049 || updated.Usage.CostUSD > 0.051 {
-		t.Errorf("CostUSD = %f, want ~0.05", updated.Usage.CostUSD)
+		t.Errorf("CostUSD = %f, want ~0.05 (got double-counted if ~0.08)", updated.Usage.CostUSD)
 	}
+	// Tokens should be 180/90 (delta: 100+80, 50+40), NOT 280/140 (naive sum).
 	if updated.Usage.InputTokens != 180 {
 		t.Errorf("InputTokens = %d, want 180", updated.Usage.InputTokens)
 	}
 	if updated.Usage.OutputTokens != 90 {
 		t.Errorf("OutputTokens = %d, want 90", updated.Usage.OutputTokens)
+	}
+}
+
+// TestRunCostResumedFromWaiting verifies that cost/token deltas are correct
+// when a task goes waiting → in_progress (feedback resume). The second Run()
+// call uses --resume, so Claude Code's cumulative totals continue from where
+// the first invocation left off.
+func TestRunCostResumedFromWaiting(t *testing.T) {
+	repo := setupTestRepo(t)
+	// First call: waiting (cumulative cost 0.03, tokens 100/50)
+	// Second call: end_turn (cumulative cost 0.07, tokens 250/120)
+	// Real per-turn: 0.03 + 0.04 = 0.07 cost, 100+150=250 input, 50+70=120 output
+	call1 := `{"result":"need input","session_id":"s1","stop_reason":"","is_error":false,"total_cost_usd":0.03,"usage":{"input_tokens":100,"output_tokens":50}}`
+	call2 := `{"result":"done","session_id":"s1","stop_reason":"end_turn","is_error":false,"total_cost_usd":0.07,"usage":{"input_tokens":250,"output_tokens":120}}`
+	cmd := fakeStatefulCmd(t, []string{call1, call2})
+	s, r := setupRunnerWithCmd(t, []string{repo}, cmd)
+	ctx := context.Background()
+
+	task, err := s.CreateTask(ctx, "Waiting resume cost test", 5, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First Run: goes to waiting.
+	r.Run(task.ID, "prompt", "", false)
+	waiting, _ := s.GetTask(ctx, task.ID)
+	if waiting.Status != "waiting" {
+		t.Fatalf("expected waiting, got %q", waiting.Status)
+	}
+
+	// Second Run (feedback resume): goes to done.
+	r.Run(task.ID, "continue", *waiting.SessionID, false)
+	final, _ := s.GetTask(ctx, task.ID)
+	if final.Status != "done" {
+		t.Fatalf("expected done, got %q", final.Status)
+	}
+
+	// Cost should be 0.07 total (0.03 + 0.04 delta), NOT 0.10 (0.03 + 0.07 naive).
+	if final.Usage.CostUSD < 0.069 || final.Usage.CostUSD > 0.071 {
+		t.Errorf("CostUSD = %f, want ~0.07 (got double-counted if ~0.10)", final.Usage.CostUSD)
+	}
+	// Tokens: 250 input (100 + 150 delta), NOT 350 (100 + 250 naive).
+	if final.Usage.InputTokens != 250 {
+		t.Errorf("InputTokens = %d, want 250", final.Usage.InputTokens)
+	}
+	if final.Usage.OutputTokens != 120 {
+		t.Errorf("OutputTokens = %d, want 120", final.Usage.OutputTokens)
 	}
 }
 
