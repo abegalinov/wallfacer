@@ -24,6 +24,11 @@ function startGitStream() {
 function renderWorkspaces() {
   const el = document.getElementById('workspace-list');
   if (!gitStatuses || gitStatuses.length === 0) return;
+  // Update browser tab title with workspace names
+  const names = gitStatuses.map(ws => ws.name).filter(Boolean);
+  if (names.length > 0) {
+    document.title = 'Wallfacer \u2014 ' + names.join(', ');
+  }
   el.innerHTML = gitStatuses.map((ws, i) => {
     if (!ws.is_git_repo || !ws.has_remote) {
       return `<span title="${escapeHtml(ws.path)}" style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border);">${escapeHtml(ws.name)}</span>`;
