@@ -11,9 +11,11 @@ BACKLOG ──drag──→ IN_PROGRESS ──end_turn────────�
    │                  │
    │                  ├──empty stop_reason──→ WAITING ──feedback──→ IN_PROGRESS
    │                  │                              ──mark done──→ COMMITTING → DONE
+   │                  │                              ──sync──────→ IN_PROGRESS (rebase) → WAITING
    │                  │                              ──cancel────→ CANCELLED
    │                  │
    │                  └──is_error / timeout──→ FAILED ──resume──→ IN_PROGRESS (same session)
+   │                                                  ──sync───→ IN_PROGRESS (rebase) → FAILED
    │                                                  ──retry───→ BACKLOG (fresh session)
    │                                                  ──cancel──→ CANCELLED
    │
@@ -73,34 +75,50 @@ Alternatively, the user can mark the task done from `waiting`, which skips furth
 
 Any task in `backlog`, `in_progress`, `waiting`, or `failed` can be cancelled via `POST /api/tasks/{id}/cancel`. The handler:
 
-1. **Kills the container** (if `in_progress`) — sends `podman kill wallfacer-<uuid>`. The running goroutine detects the cancelled status and exits without overwriting it to `failed`.
+1. **Kills the container** (if `in_progress`) — sends `<runtime> kill wallfacer-<uuid>`. The running goroutine detects the cancelled status and exits without overwriting it to `failed`.
 2. **Cleans up worktrees** — removes the git worktree and deletes the task branch, discarding all prepared changes.
 3. **Sets status to `cancelled`** and appends a `state_change` event.
 4. **Preserves history** — `data/<uuid>/traces/` and `data/<uuid>/outputs/` are left intact so execution logs, token usage, and the event timeline remain visible.
 
 From `cancelled`, the user can retry the task (moves it back to `backlog`) to restart from scratch.
 
+## Title Generation
+
+When a task is created, a background goroutine (`runner.GenerateTitle`) launches a lightweight container to generate a short title from the prompt. Titles are stored on the task and displayed on the board cards instead of the full prompt text. `POST /api/tasks/generate-titles` can retroactively generate titles for older untitled tasks.
+
+## Board Context
+
+Each container receives a read-only `board.json` at `/workspace/.tasks/board.json` containing a manifest of all non-archived tasks. The current task is marked `"is_self": true`. This gives Claude cross-task awareness to avoid conflicting changes with sibling tasks. The manifest is refreshed before every turn.
+
+When `MountWorktrees` is enabled on a task, eligible sibling worktrees are also mounted read-only at `/workspace/.tasks/worktrees/<short-id>/<repo>/`.
+
 ## Data Models
 
-Defined in `store.go`:
+Defined in `internal/store/models.go`:
 
 **Task**
 ```
-ID          string       // UUID
-Prompt      string       // original task description
-Status      string       // current state
-SessionID   string       // Claude Code session ID (persisted across turns)
-StopReason  string       // last stop_reason from Claude
-Turns       int          // number of completed turns
-Timeout     int          // per-turn timeout in seconds
-Usage       TaskUsage    // accumulated token counts and cost
-Worktrees   []Worktree   // per-repo worktree paths and branch names
-CommitHash  []string     // commit hashes after merge
+ID              string            // UUID
+Title           string            // auto-generated short title
+Prompt          string            // original task description
+Status          string            // current state
+SessionID       string            // Claude Code session ID (persisted across turns)
+StopReason      string            // last stop_reason from Claude
+Result          string            // last result text from Claude
+Turns           int               // number of completed turns
+Timeout         int               // per-turn timeout in minutes
+FreshStart      bool              // skip --resume on next run
+MountWorktrees  bool              // enable sibling worktree mounts + board context
+Usage           TaskUsage         // accumulated token counts and cost
+WorktreePaths   map[string]string // repo path → worktree path
+BranchName      string            // task branch name (e.g. task/a1b2c3d4)
+CommitHashes    map[string]string // repo path → commit hash after merge
+BaseCommitHashes map[string]string // repo path → base commit hash at branch creation
 ```
 
 **TaskEvent** (append-only trace log)
 ```
-Type      string    // state_change | output | feedback | error
+Type      EventType // state_change | output | feedback | error | system
 Timestamp time.Time
 Payload   any       // type-specific data
 ```

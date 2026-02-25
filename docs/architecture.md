@@ -38,32 +38,54 @@ The Go server runs natively on the host and persists tasks to per-task directori
 
 ```
 wallfacer/
-├── main.go              # CLI dispatch, HTTP routing, server init, browser launch
-├── handler.go           # HTTP API handlers (CRUD, feedback, git, SSE)
-├── runner.go            # Container orchestration, task execution loop, commit pipeline
-├── store.go             # In-memory task store, event sourcing, atomic file I/O
-├── git.go               # Git worktree operations, branch detection, rebase/merge
-├── logger.go            # Structured logging (pretty-print + JSON)
+├── main.go              # CLI dispatch, container runtime detection, server init, browser launch
+├── server.go            # HTTP server setup, mux construction, route registration
 │
 ├── internal/
 │   ├── envconfig/       # .env file parsing and atomic update helpers
+│   ├── gitutil/         # Git operations: repo queries, worktree lifecycle, rebase/merge, status
 │   ├── handler/         # HTTP API handlers (one file per concern)
+│   │   ├── config.go        # GET /api/config
+│   │   ├── containers.go    # GET /api/containers
+│   │   ├── env.go           # GET/PUT /api/env
+│   │   ├── execute.go       # Task lifecycle actions (feedback, done, cancel, resume, sync, archive)
+│   │   ├── git.go           # Git status, push, sync, branches, checkout, create-branch, diff
+│   │   ├── instructions.go  # GET/PUT /api/instructions, POST reinit
+│   │   ├── stream.go        # SSE endpoints (task stream, git stream, container logs)
+│   │   └── tasks.go         # Task CRUD, title generation
 │   ├── instructions/    # Workspace CLAUDE.md management
+│   ├── logger/          # Structured logging (pretty-print + JSON)
 │   ├── runner/          # Container orchestration, task execution, commit pipeline
-│   └── store/           # In-memory task store, event sourcing, atomic file I/O
+│   │   ├── board.go         # Board context (board.json) generation for cross-task awareness
+│   │   ├── commit.go        # Commit pipeline: Claude commit, rebase, merge, cleanup
+│   │   ├── container.go     # Container argument building, execution, output parsing
+│   │   ├── execute.go       # Main task execution loop, worktree sync
+│   │   ├── runner.go        # Runner struct, config, container listing (Podman + Docker)
+│   │   ├── snapshot.go      # Pre-run workspace snapshot for diff baselines
+│   │   ├── title.go         # Background title generation via Claude
+│   │   └── worktree.go      # Worktree setup and cleanup
+│   └── store/           # Per-task directory persistence, data models, event sourcing
 │
 ├── ui/
 │   ├── index.html       # 5-column Kanban board layout
+│   ├── css/
+│   │   ├── styles.css       # Custom component styles
+│   │   └── tailwind.css     # Tailwind CSS build
 │   └── js/
-│       ├── state.js     # Global state management
-│       ├── api.js       # HTTP client & SSE stream setup
-│       ├── tasks.js     # Task CRUD operations
-│       ├── render.js    # Board rendering & DOM updates
-│       ├── modal.js     # Task detail modal
-│       ├── git.js       # Git status display
-│       ├── dnd.js       # Drag-and-drop (Sortable.js)
-│       ├── events.js    # Event timeline rendering
-│       └── envconfig.js # API configuration editor (token, base URL, model)
+│       ├── state.js         # Global state management
+│       ├── api.js           # HTTP client & SSE stream setup
+│       ├── tasks.js         # Task CRUD operations
+│       ├── render.js        # Board rendering & DOM updates
+│       ├── modal.js         # Task detail modal (diff view, events, logs)
+│       ├── git.js           # Git status display & branch switcher
+│       ├── dnd.js           # Drag-and-drop (Sortable.js)
+│       ├── events.js        # Event timeline rendering
+│       ├── envconfig.js     # API configuration editor (token, base URL, model)
+│       ├── containers.js    # Container monitoring UI
+│       ├── instructions.js  # CLAUDE.md editor
+│       ├── markdown.js      # Markdown rendering (Marked.js)
+│       ├── theme.js         # Dark/light theme toggle
+│       └── utils.js         # Shared utility functions
 │
 ├── sandbox/
 │   ├── Dockerfile       # Ubuntu 24.04 + Go + Node + Python + Claude Code
@@ -84,6 +106,8 @@ wallfacer/
 | SSE, not WebSocket | Simpler server-side; one-directional push is all the UI needs |
 | Ephemeral containers | No state leaks between tasks; each run starts clean |
 | Event sourcing (traces/) | Full audit trail; enables crash recovery and replay |
+| Board context (`board.json`) | Cross-task awareness; Claude can see sibling tasks to avoid conflicts |
+| Auto-detect container runtime | Supports both Podman and Docker transparently |
 
 ## Configuration
 

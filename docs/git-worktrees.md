@@ -104,23 +104,64 @@ Cleanup is idempotent and safe to call multiple times (errors are logged, not fa
 
 This handles crashes where cleanup never ran.
 
-## Git Helper Functions (`git.go`)
+## Worktree Sync (Rebase Without Merge)
 
-| Function | Purpose |
+Tasks in `waiting` or `failed` status can be synced with the latest default branch via `POST /api/tasks/{id}/sync`. This rebases the task worktree onto the current default branch HEAD without merging, keeping the task's changes on top.
+
+```
+POST /api/tasks/{id}/sync
+  ↓
+task status → in_progress (temporarily)
+  ↓
+for each worktree:
+  git fetch origin
+  git rebase <default-branch>
+    └─ on conflict: invoke Claude Code (same session) to resolve, up to 3 retries
+  ↓
+task status → previous status (waiting or failed)
+  ↓
+if rebase fails after retries → task status → failed
+```
+
+This is useful when other tasks have merged changes to the default branch and you want the current task to pick them up before continuing.
+
+## Task Diff
+
+`GET /api/tasks/{id}/diff` returns the diff of a task's changes against the default branch. It handles multiple scenarios:
+
+- **Active worktrees** — uses `merge-base` to diff only the task's changes since it diverged, including untracked files
+- **Merged tasks** (worktree cleaned up) — falls back to stored commit hashes or branch names to reconstruct the diff
+- Returns `behind_counts` per repo indicating how many commits the default branch has advanced since the task branched off
+
+## Git Helper Functions (`internal/gitutil/`)
+
+Git operations are organized in the `internal/gitutil` package:
+
+| File | Purpose |
 |---|---|
-| `isGitRepo(path)` | Check if a directory is inside a git repo |
-| `defaultBranch(repoPath)` | Detect the default branch name |
-| `createWorktree(repo, branch, path)` | `git worktree add -b <branch> <path>` |
-| `removeWorktree(repo, path)` | `git worktree remove --force <path>` |
-| `rebaseOntoDefault(worktree)` | Rebase task branch onto default branch |
-| `ffMerge(repo, branch)` | Fast-forward merge into default branch |
-| `hasCommitsAheadOf(worktree, base)` | Check whether the worktree has unpushed commits |
-| `getCommitHash(path)` | Get current HEAD SHA in a worktree or repo |
+| `repo.go` | Repository queries: `IsGitRepo`, `DefaultBranch`, `MergeBase`, `CommitsBehind` |
+| `worktree.go` | Worktree lifecycle: `CreateWorktree`, `RemoveWorktree`, `PruneWorktrees` |
+| `ops.go` | Git operations: `RebaseOnto`, `FFMerge`, `HasCommitsAheadOf`, `GetCommitHash` |
+| `stash.go` | Stash operations for conflict resolution |
+| `status.go` | Workspace git status for the UI header bar |
 
-## Git Status API
+## Git Status & Branch Management API
 
-The server exposes git status for the UI's header bar. See [Orchestration](orchestration.md) for the full API route list.
+The server exposes git status and branch management for the UI header bar. See [Orchestration](orchestration.md) for the full API route list.
 
 - `GET /api/git/status` — current branch, remote tracking, ahead/behind counts per workspace
 - `GET /api/git/stream` — SSE endpoint pushing git status updates
 - `POST /api/git/push` — run `git push` on a workspace
+- `POST /api/git/sync` — fetch from remote and rebase workspace onto upstream
+- `GET /api/git/branches?workspace=<path>` — list all local branches for a workspace; returns `{branches: [...], current: "main"}`
+- `POST /api/git/checkout` — switch the active branch (`{workspace, branch}`); refuses while tasks are in progress
+- `POST /api/git/create-branch` — create and checkout a new branch (`{workspace, branch}`); refuses while tasks are in progress
+
+### Branch Switching
+
+The UI header displays a branch switcher dropdown for each workspace. Users can:
+
+1. **Switch branches** — select an existing branch from the dropdown. The server runs `git checkout` on the workspace. All future task worktrees branch from the new HEAD.
+2. **Create branches** — type a new branch name in the search field and select "Create branch". The server runs `git checkout -b` on the workspace.
+
+Both operations are blocked while any task is `in_progress` to prevent worktree conflicts.
