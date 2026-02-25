@@ -533,16 +533,16 @@ func TestRunUsageAccumulation(t *testing.T) {
 	}
 }
 
-// TestRunCostDeltaMultiTurn verifies that cumulative total_cost_usd values
-// from multi-turn sessions are correctly converted to per-turn deltas,
-// preventing double-counting of costs.
-func TestRunCostDeltaMultiTurn(t *testing.T) {
+// TestRunCostMultiTurn verifies that per-invocation total_cost_usd values
+// are accumulated (summed) across turns. Each container invocation reports
+// its own cost; the store adds them together.
+func TestRunCostMultiTurn(t *testing.T) {
 	repo := setupTestRepo(t)
-	// Turn 1: max_tokens with cumulative cost 0.03
-	// Turn 2: end_turn with cumulative cost 0.05
-	// The per-turn costs should be 0.03 and 0.02, totaling 0.05.
+	// Turn 1: max_tokens with per-invocation cost 0.03
+	// Turn 2: end_turn with per-invocation cost 0.02
+	// Total should be 0.03 + 0.02 = 0.05.
 	turn1 := `{"result":"partial","session_id":"s1","stop_reason":"max_tokens","is_error":false,"total_cost_usd":0.03,"usage":{"input_tokens":100,"output_tokens":50}}`
-	turn2 := `{"result":"done","session_id":"s1","stop_reason":"end_turn","is_error":false,"total_cost_usd":0.05,"usage":{"input_tokens":80,"output_tokens":40}}`
+	turn2 := `{"result":"done","session_id":"s1","stop_reason":"end_turn","is_error":false,"total_cost_usd":0.02,"usage":{"input_tokens":80,"output_tokens":40}}`
 	cmd := fakeStatefulCmd(t, []string{turn1, turn2})
 	s, r := setupRunnerWithCmd(t, []string{repo}, cmd)
 	ctx := context.Background()
@@ -555,11 +555,10 @@ func TestRunCostDeltaMultiTurn(t *testing.T) {
 	r.Run(task.ID, "prompt", "", false)
 
 	updated, _ := s.GetTask(ctx, task.ID)
-	// Cost should be 0.05 (0.03 delta + 0.02 delta), not 0.08 (0.03 + 0.05).
+	// Cost should be 0.05 (0.03 + 0.02).
 	if updated.Usage.CostUSD < 0.049 || updated.Usage.CostUSD > 0.051 {
-		t.Errorf("CostUSD = %f, want ~0.05 (got double-counted if > 0.07)", updated.Usage.CostUSD)
+		t.Errorf("CostUSD = %f, want ~0.05", updated.Usage.CostUSD)
 	}
-	// Tokens are per-invocation, so they should accumulate normally.
 	if updated.Usage.InputTokens != 180 {
 		t.Errorf("InputTokens = %d, want 180", updated.Usage.InputTokens)
 	}
