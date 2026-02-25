@@ -681,6 +681,133 @@ pre.result-entry-body {
   display: none; /* hidden on desktop */
 }
 
+/* ===== Branch Switcher ===== */
+.branch-switcher-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  max-width: 160px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.branch-switcher-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+.branch-switcher-btn .branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.branch-dropdown {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.branch-dropdown-header {
+  padding: 8px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.branch-dropdown-search {
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.branch-search-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+.branch-search-input:focus {
+  border-color: var(--accent);
+}
+.branch-dropdown-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 0;
+}
+.branch-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 12px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.branch-dropdown-item:hover {
+  background: var(--bg-hover);
+}
+.branch-dropdown-item.current {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.branch-dropdown-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.branch-dropdown-footer {
+  border-top: 1px solid var(--border);
+}
+.branch-dropdown-footer:empty,
+.branch-dropdown-footer:not(:has(button[style*="display"])),
+.branch-dropdown-footer:has(button[style*="display: none"]) {
+  border-top: none;
+  padding: 0;
+}
+.branch-dropdown-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+.branch-dropdown-create:hover {
+  background: var(--bg-hover);
+}
+.branch-dropdown-loading {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* ===== Mobile Responsive ===== */
 @media (max-width: 768px) {
   /* --- Mobile column navigator --- */

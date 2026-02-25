@@ -28,8 +28,12 @@ function renderWorkspaces() {
     if (!ws.is_git_repo || !ws.has_remote) {
       return `<span title="${escapeHtml(ws.path)}" style="font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--bg-input); color: var(--text-muted); border: 1px solid var(--border);">${escapeHtml(ws.name)}</span>`;
     }
-    const branchSelect = ws.branch
-      ? ` <select data-ws-idx="${i}" onchange="checkoutBranch(this)" onfocus="loadBranches(this)" style="opacity:0.55;background:transparent;border:none;color:inherit;font:inherit;font-size:11px;cursor:pointer;padding:0;outline:none;-webkit-appearance:none;appearance:none;max-width:120px;"><option>${escapeHtml(ws.branch)}</option></select>`
+    const branchBtn = ws.branch
+      ? ` <button class="branch-switcher-btn" data-ws-idx="${i}" onclick="toggleBranchDropdown(this, event)" title="Switch branch">`
+        + `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0;"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"></path></svg>`
+        + `<span class="branch-name">${escapeHtml(ws.branch)}</span>`
+        + `<svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink:0;opacity:0.6;"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/></svg>`
+        + `</button>`
       : '';
     const aheadBadge = ws.ahead_count > 0
       ? `<span style="background:var(--accent);color:#fff;border-radius:3px;padding:0 5px;font-size:10px;font-weight:600;line-height:17px;">${ws.ahead_count}↑</span>`
@@ -43,47 +47,171 @@ function renderWorkspaces() {
     const pushBtn = ws.ahead_count > 0
       ? `<button data-ws-idx="${i}" onclick="pushWorkspace(this)" style="background:var(--accent);color:#fff;border:none;border-radius:3px;padding:1px 7px;font-size:10px;font-weight:500;cursor:pointer;line-height:17px;">Push</button>`
       : '';
-    return `<span title="${escapeHtml(ws.path)}" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 6px 2px 8px;border-radius:4px;background:var(--bg-input);color:var(--text-muted);border:1px solid var(--border);">${escapeHtml(ws.name)}${branchSelect}${behindBadge}${aheadBadge}${syncBtn}${pushBtn}</span>`;
+    return `<span title="${escapeHtml(ws.path)}" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 6px 2px 8px;border-radius:4px;background:var(--bg-input);color:var(--text-muted);border:1px solid var(--border);position:relative;">${escapeHtml(ws.name)}${branchBtn}${behindBadge}${aheadBadge}${syncBtn}${pushBtn}</span>`;
   }).join('');
 }
 
-async function loadBranches(sel) {
-  const idx = parseInt(sel.getAttribute('data-ws-idx'), 10);
+// --- Branch dropdown ---
+
+function closeBranchDropdown() {
+  const existing = document.querySelector('.branch-dropdown');
+  if (existing) existing.remove();
+}
+
+function toggleBranchDropdown(btn, event) {
+  event.stopPropagation();
+  const existing = document.querySelector('.branch-dropdown');
+  if (existing) {
+    // If clicking the same button, just close
+    if (existing._triggerBtn === btn) {
+      existing.remove();
+      return;
+    }
+    existing.remove();
+  }
+  const idx = parseInt(btn.getAttribute('data-ws-idx'), 10);
   const ws = gitStatuses[idx];
   if (!ws) return;
-  // Only fetch once per focus — check if we already populated.
-  if (sel.options.length > 1) return;
+
+  const dropdown = document.createElement('div');
+  dropdown.className = 'branch-dropdown';
+  dropdown._triggerBtn = btn;
+  dropdown.innerHTML = '<div class="branch-dropdown-loading">Loading branches...</div>';
+
+  // Position below the button
+  const rect = btn.getBoundingClientRect();
+  dropdown.style.position = 'fixed';
+  dropdown.style.top = (rect.bottom + 4) + 'px';
+  dropdown.style.left = rect.left + 'px';
+  dropdown.style.zIndex = '9999';
+
+  document.body.appendChild(dropdown);
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', closeBranchDropdownOnClick);
+  }, 0);
+
+  // Load branches
+  loadBranchesForDropdown(dropdown, idx, ws);
+}
+
+function closeBranchDropdownOnClick(e) {
+  const dd = document.querySelector('.branch-dropdown');
+  if (dd && !dd.contains(e.target)) {
+    dd.remove();
+    document.removeEventListener('click', closeBranchDropdownOnClick);
+  }
+}
+
+async function loadBranchesForDropdown(dropdown, idx, ws) {
   try {
     const data = await api('/api/git/branches?workspace=' + encodeURIComponent(ws.path));
     const current = data.current || ws.branch;
-    sel.innerHTML = '';
-    (data.branches || []).forEach(function(b) {
-      const opt = document.createElement('option');
-      opt.value = b;
-      opt.textContent = b;
-      if (b === current) opt.selected = true;
-      sel.appendChild(opt);
+    const branches = data.branches || [];
+
+    let html = '<div class="branch-dropdown-header">Switch branch</div>';
+    html += '<div class="branch-dropdown-search"><input type="text" placeholder="Filter or create branch..." class="branch-search-input" autocomplete="off" spellcheck="false"></div>';
+    html += '<div class="branch-dropdown-list">';
+    branches.forEach(function(b) {
+      const isCurrent = b === current;
+      html += `<button class="branch-dropdown-item${isCurrent ? ' current' : ''}" data-branch="${escapeHtml(b)}" data-ws-idx="${idx}" onclick="selectBranch(this)">`
+        + (isCurrent ? '<svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink:0;color:var(--accent);"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>' : '<span style="width:12px;display:inline-block;"></span>')
+        + `<span class="branch-dropdown-item-name">${escapeHtml(b)}</span></button>`;
+    });
+    html += '</div>';
+    html += '<div class="branch-dropdown-footer">';
+    html += '<button class="branch-dropdown-create" data-ws-idx="' + idx + '" style="display:none;" onclick="createNewBranch(this)"><svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" style="flex-shrink:0;"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg><span></span></button>';
+    html += '</div>';
+
+    dropdown.innerHTML = html;
+
+    // Set up search/filter behavior
+    const input = dropdown.querySelector('.branch-search-input');
+    const list = dropdown.querySelector('.branch-dropdown-list');
+    const createBtn = dropdown.querySelector('.branch-dropdown-create');
+    input.focus();
+
+    input.addEventListener('input', function() {
+      const q = input.value.trim().toLowerCase();
+      const items = list.querySelectorAll('.branch-dropdown-item');
+      let anyVisible = false;
+      let exactMatch = false;
+      items.forEach(function(item) {
+        const name = item.getAttribute('data-branch').toLowerCase();
+        const show = !q || name.includes(q);
+        item.style.display = show ? '' : 'none';
+        if (show) anyVisible = true;
+        if (name === q) exactMatch = true;
+      });
+
+      // Show "Create branch" option when there's text and no exact match
+      if (q && !exactMatch) {
+        createBtn.style.display = '';
+        createBtn.querySelector('span').textContent = 'Create branch "' + input.value.trim() + '"';
+        createBtn.setAttribute('data-new-branch', input.value.trim());
+      } else {
+        createBtn.style.display = 'none';
+      }
+    });
+
+    // Handle Enter key to create branch when create button is visible
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (createBtn.style.display !== 'none') {
+          createNewBranch(createBtn);
+        }
+      } else if (e.key === 'Escape') {
+        closeBranchDropdown();
+        document.removeEventListener('click', closeBranchDropdownOnClick);
+      }
     });
   } catch (e) {
+    dropdown.innerHTML = '<div class="branch-dropdown-loading" style="color:var(--text-error);">Failed to load branches</div>';
     console.error('Failed to load branches:', e);
   }
 }
 
-async function checkoutBranch(sel) {
-  const idx = parseInt(sel.getAttribute('data-ws-idx'), 10);
+async function selectBranch(item) {
+  const idx = parseInt(item.getAttribute('data-ws-idx'), 10);
   const ws = gitStatuses[idx];
-  if (!ws) return;
-  const branch = sel.value;
-  if (branch === ws.branch) return;
-  sel.disabled = true;
+  const branch = item.getAttribute('data-branch');
+  if (!ws || branch === ws.branch) {
+    closeBranchDropdown();
+    document.removeEventListener('click', closeBranchDropdownOnClick);
+    return;
+  }
+
+  item.style.opacity = '0.5';
+  item.style.pointerEvents = 'none';
   try {
     await api('/api/git/checkout', { method: 'POST', body: JSON.stringify({ workspace: ws.path, branch: branch }) });
-    // SSE stream will pick up the new branch automatically.
+    closeBranchDropdown();
+    document.removeEventListener('click', closeBranchDropdownOnClick);
   } catch (e) {
     showAlert('Branch switch failed: ' + e.message);
-    sel.value = ws.branch;
-  } finally {
-    sel.disabled = false;
+    item.style.opacity = '';
+    item.style.pointerEvents = '';
+  }
+}
+
+async function createNewBranch(btn) {
+  const idx = parseInt(btn.getAttribute('data-ws-idx'), 10);
+  const ws = gitStatuses[idx];
+  const branch = btn.getAttribute('data-new-branch');
+  if (!ws || !branch) return;
+
+  btn.style.opacity = '0.5';
+  btn.style.pointerEvents = 'none';
+  try {
+    await api('/api/git/create-branch', { method: 'POST', body: JSON.stringify({ workspace: ws.path, branch: branch }) });
+    closeBranchDropdown();
+    document.removeEventListener('click', closeBranchDropdownOnClick);
+  } catch (e) {
+    showAlert('Failed to create branch: ' + e.message);
+    btn.style.opacity = '';
+    btn.style.pointerEvents = '';
   }
 }
 

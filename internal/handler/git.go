@@ -324,6 +324,50 @@ func (h *Handler) GitCheckout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"branch": req.Branch})
 }
 
+// GitCreateBranch creates a new branch in the workspace and checks it out.
+func (h *Handler) GitCreateBranch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Workspace string `json:"workspace"`
+		Branch    string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if !h.isAllowedWorkspace(req.Workspace) {
+		http.Error(w, "workspace not configured", http.StatusBadRequest)
+		return
+	}
+
+	// Validate branch name: must not contain "..", spaces, or control characters.
+	if req.Branch == "" || strings.Contains(req.Branch, "..") || strings.ContainsAny(req.Branch, " \t\n\r") {
+		http.Error(w, "invalid branch name", http.StatusBadRequest)
+		return
+	}
+
+	// Refuse to create while any task is in_progress.
+	tasks, err := h.store.ListTasks(r.Context(), false)
+	if err == nil {
+		for _, t := range tasks {
+			if t.Status == "in_progress" {
+				http.Error(w, "cannot create branch while tasks are in progress", http.StatusConflict)
+				return
+			}
+		}
+	}
+
+	logger.Git.Info("create-branch", "workspace", req.Workspace, "branch", req.Branch)
+	out, err := exec.CommandContext(r.Context(), "git", "-C", req.Workspace, "checkout", "-b", req.Branch).CombinedOutput()
+	if err != nil {
+		logger.Git.Error("create-branch failed", "workspace", req.Workspace, "branch", req.Branch, "error", err)
+		http.Error(w, string(out), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"branch": req.Branch})
+}
+
 // isAllowedWorkspace checks that the workspace path is one the server was started with.
 func (h *Handler) isAllowedWorkspace(ws string) bool {
 	for _, configured := range h.runner.Workspaces() {
