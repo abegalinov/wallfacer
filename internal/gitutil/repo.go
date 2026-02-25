@@ -40,6 +40,25 @@ func DefaultBranch(repoPath string) (string, error) {
 	return "main", nil
 }
 
+// RemoteDefaultBranch returns the default branch of the "origin" remote
+// (e.g. "main" or "master"). It does NOT consider the current checkout.
+func RemoteDefaultBranch(repoPath string) string {
+	out, err := exec.Command("git", "-C", repoPath, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").Output()
+	if err == nil {
+		branch := strings.TrimSpace(strings.TrimPrefix(string(out), "origin/"))
+		if branch != "" && branch != strings.TrimSpace(string(out)) {
+			return branch
+		}
+	}
+	if exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "origin/main").Run() == nil {
+		return "main"
+	}
+	if exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "origin/master").Run() == nil {
+		return "master"
+	}
+	return "main"
+}
+
 // GetCommitHash returns the current HEAD commit hash in repoPath.
 func GetCommitHash(repoPath string) (string, error) {
 	out, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()

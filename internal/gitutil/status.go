@@ -9,13 +9,15 @@ import (
 
 // WorkspaceGitStatus holds the git state for a single workspace directory.
 type WorkspaceGitStatus struct {
-	Path        string `json:"path"`
-	Name        string `json:"name"`
-	IsGitRepo   bool   `json:"is_git_repo"`
-	Branch      string `json:"branch,omitempty"`
-	HasRemote   bool   `json:"has_remote"`
-	AheadCount  int    `json:"ahead_count"`
-	BehindCount int    `json:"behind_count"`
+	Path             string `json:"path"`
+	Name             string `json:"name"`
+	IsGitRepo        bool   `json:"is_git_repo"`
+	Branch           string `json:"branch,omitempty"`
+	HasRemote        bool   `json:"has_remote"`
+	AheadCount       int    `json:"ahead_count"`
+	BehindCount      int    `json:"behind_count"`
+	MainBranch       string `json:"main_branch,omitempty"`
+	BehindMainCount  int    `json:"behind_main_count"`
 }
 
 // WorkspaceStatus inspects a directory and returns its git status.
@@ -48,6 +50,16 @@ func WorkspaceStatus(path string) WorkspaceGitStatus {
 	if out, err := exec.Command("git", "-C", path, "rev-list", "--count", "HEAD..@{u}").Output(); err == nil {
 		n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
 		s.BehindCount = n
+	}
+
+	// Determine the remote's default branch and how far behind we are.
+	mainBranch := RemoteDefaultBranch(path)
+	s.MainBranch = mainBranch
+	if s.Branch != "" && s.Branch != mainBranch {
+		if out, err := exec.Command("git", "-C", path, "rev-list", "--count", "HEAD..origin/"+mainBranch).Output(); err == nil {
+			n, _ := strconv.Atoi(strings.TrimSpace(string(out)))
+			s.BehindMainCount = n
+		}
 	}
 
 	return s

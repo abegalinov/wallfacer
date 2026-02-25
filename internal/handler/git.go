@@ -148,6 +148,58 @@ func (h *Handler) GitSyncWorkspace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"output": string(out)})
 }
 
+// GitRebaseOnMain fetches the remote default branch and rebases the current branch onto it.
+func (h *Handler) GitRebaseOnMain(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Workspace string `json:"workspace"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if !h.isAllowedWorkspace(req.Workspace) {
+		http.Error(w, "workspace not configured", http.StatusBadRequest)
+		return
+	}
+
+	// Refuse while tasks are in progress.
+	tasks, err := h.store.ListTasks(r.Context(), false)
+	if err == nil {
+		for _, t := range tasks {
+			if t.Status == "in_progress" {
+				http.Error(w, "cannot rebase while tasks are in progress", http.StatusConflict)
+				return
+			}
+		}
+	}
+
+	mainBranch := gitutil.RemoteDefaultBranch(req.Workspace)
+	logger.Git.Info("rebase-on-main", "workspace", req.Workspace, "main", mainBranch)
+
+	// Fetch the remote default branch.
+	if out, err := exec.CommandContext(r.Context(), "git", "-C", req.Workspace, "fetch", "origin", mainBranch).CombinedOutput(); err != nil {
+		logger.Git.Error("fetch failed", "workspace", req.Workspace, "error", err)
+		http.Error(w, "fetch failed: "+string(out), http.StatusInternalServerError)
+		return
+	}
+
+	// Rebase onto origin/<main>.
+	out, err := exec.CommandContext(r.Context(), "git", "-C", req.Workspace, "rebase", "origin/"+mainBranch).CombinedOutput()
+	if err != nil {
+		exec.Command("git", "-C", req.Workspace, "rebase", "--abort").Run()
+		logger.Git.Error("rebase-on-main failed", "workspace", req.Workspace, "error", err)
+		if gitutil.IsConflictOutput(string(out)) {
+			http.Error(w, "rebase conflict: resolve manually in "+req.Workspace, http.StatusConflict)
+			return
+		}
+		http.Error(w, "rebase failed: "+string(out), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"output": string(out)})
+}
+
 // TaskDiff returns the git diff for a task's worktrees versus the default branch.
 func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	task, err := h.store.GetTask(r.Context(), id)

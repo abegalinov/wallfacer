@@ -52,7 +52,10 @@ function renderWorkspaces() {
     const pushBtn = ws.ahead_count > 0
       ? `<button data-ws-idx="${i}" onclick="pushWorkspace(this)" style="background:var(--accent);color:#fff;border:none;border-radius:3px;padding:1px 7px;font-size:10px;font-weight:500;cursor:pointer;line-height:17px;">Push</button>`
       : '';
-    return `<span title="${escapeHtml(ws.path)}" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 6px 2px 8px;border-radius:4px;background:var(--bg-input);color:var(--text-muted);border:1px solid var(--border);position:relative;">${escapeHtml(ws.name)}${branchBtn}${behindBadge}${aheadBadge}${syncBtn}${pushBtn}</span>`;
+    const rebaseMainBtn = (ws.branch && ws.main_branch && ws.branch !== ws.main_branch)
+      ? `<button data-ws-idx="${i}" onclick="rebaseOnMain(this)" style="background:#7c3aed;color:#fff;border:none;border-radius:3px;padding:1px 7px;font-size:10px;font-weight:500;cursor:pointer;line-height:17px;" title="Fetch origin/${escapeHtml(ws.main_branch)} and rebase current branch on top">${ws.behind_main_count > 0 ? ws.behind_main_count + '↓ ' : ''}Rebase on ${escapeHtml(ws.main_branch)}</button>`
+      : '';
+    return `<span title="${escapeHtml(ws.path)}" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 6px 2px 8px;border-radius:4px;background:var(--bg-input);color:var(--text-muted);border:1px solid var(--border);position:relative;">${escapeHtml(ws.name)}${branchBtn}${behindBadge}${aheadBadge}${syncBtn}${pushBtn}${rebaseMainBtn}</span>`;
   }).join('');
 }
 
@@ -252,5 +255,26 @@ async function syncWorkspace(btn) {
     }
     btn.disabled = false;
     btn.textContent = 'Sync';
+  }
+}
+
+async function rebaseOnMain(btn) {
+  const idx = parseInt(btn.getAttribute('data-ws-idx'), 10);
+  const ws = gitStatuses[idx];
+  if (!ws) return;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    await api('/api/git/rebase-on-main', { method: 'POST', body: JSON.stringify({ workspace: ws.path }) });
+    // Status stream will pick up the updated state.
+  } catch (e) {
+    if (e.message && e.message.includes('rebase conflict')) {
+      showAlert('Rebase failed: conflict in ' + ws.name + '.\n\nResolve the conflict manually in:\n' + ws.path);
+    } else {
+      showAlert('Rebase failed: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.textContent = label;
   }
 }

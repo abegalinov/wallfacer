@@ -171,6 +171,7 @@ func buildMux(h *handler.Handler, _ *runner.Runner) *http.ServeMux {
 	mux.HandleFunc("GET /api/git/stream", h.GitStatusStream)
 	mux.HandleFunc("POST /api/git/push", h.GitPush)
 	mux.HandleFunc("POST /api/git/sync", h.GitSyncWorkspace)
+	mux.HandleFunc("POST /api/git/rebase-on-main", h.GitRebaseOnMain)
 	mux.HandleFunc("GET /api/git/branches", h.GitBranches)
 	mux.HandleFunc("POST /api/git/checkout", h.GitCheckout)
 	mux.HandleFunc("POST /api/git/create-branch", h.GitCreateBranch)
