@@ -241,6 +241,89 @@ func (h *Handler) TaskDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 	})
 }
 
+// GitBranches returns the list of local branches for a workspace.
+func (h *Handler) GitBranches(w http.ResponseWriter, r *http.Request) {
+	ws := r.URL.Query().Get("workspace")
+	if ws == "" {
+		http.Error(w, "workspace query param required", http.StatusBadRequest)
+		return
+	}
+	if !h.isAllowedWorkspace(ws) {
+		http.Error(w, "workspace not configured", http.StatusBadRequest)
+		return
+	}
+
+	out, err := exec.CommandContext(r.Context(), "git", "-C", ws,
+		"branch", "--list", "--format=%(refname:short)").Output()
+	if err != nil {
+		http.Error(w, "failed to list branches", http.StatusInternalServerError)
+		return
+	}
+
+	var branches []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+
+	current := ""
+	if curOut, err := exec.CommandContext(r.Context(), "git", "-C", ws,
+		"branch", "--show-current").Output(); err == nil {
+		current = strings.TrimSpace(string(curOut))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"branches": branches,
+		"current":  current,
+	})
+}
+
+// GitCheckout switches the active branch for a workspace.
+func (h *Handler) GitCheckout(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Workspace string `json:"workspace"`
+		Branch    string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if !h.isAllowedWorkspace(req.Workspace) {
+		http.Error(w, "workspace not configured", http.StatusBadRequest)
+		return
+	}
+
+	// Validate branch name: must not contain "..", spaces, or control characters.
+	if req.Branch == "" || strings.Contains(req.Branch, "..") || strings.ContainsAny(req.Branch, " \t\n\r") {
+		http.Error(w, "invalid branch name", http.StatusBadRequest)
+		return
+	}
+
+	// Refuse to switch while any task is in_progress — worktrees are based on the current branch.
+	tasks, err := h.store.ListTasks(r.Context(), false)
+	if err == nil {
+		for _, t := range tasks {
+			if t.Status == "in_progress" {
+				http.Error(w, "cannot switch branch while tasks are in progress", http.StatusConflict)
+				return
+			}
+		}
+	}
+
+	logger.Git.Info("checkout", "workspace", req.Workspace, "branch", req.Branch)
+	out, err := exec.CommandContext(r.Context(), "git", "-C", req.Workspace, "checkout", req.Branch).CombinedOutput()
+	if err != nil {
+		logger.Git.Error("checkout failed", "workspace", req.Workspace, "branch", req.Branch, "error", err)
+		http.Error(w, string(out), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"branch": req.Branch})
+}
+
 // isAllowedWorkspace checks that the workspace path is one the server was started with.
 func (h *Handler) isAllowedWorkspace(ws string) bool {
 	for _, configured := range h.runner.Workspaces() {
