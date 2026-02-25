@@ -14,6 +14,10 @@ type TaskUsage struct {
 	CacheReadInputTokens int     `json:"cache_read_input_tokens"`
 	CacheCreationTokens  int     `json:"cache_creation_input_tokens"`
 	CostUSD              float64 `json:"cost_usd"`
+	// LastReportedCost stores the cumulative total_cost_usd from the most
+	// recent container invocation. Claude Code reports session-cumulative
+	// cost, so we need this to compute per-turn deltas.
+	LastReportedCost float64 `json:"last_reported_cost,omitempty"`
 }
 
 // Task is the core domain model: a unit of work executed by Claude Code.

@@ -86,6 +86,12 @@ func (r *Runner) Run(taskID uuid.UUID, prompt, sessionID string, resumedFromWait
 
 	turns := task.Turns
 
+	// Track the last cumulative cost reported by the container so we can
+	// compute per-turn deltas. Claude Code's total_cost_usd is cumulative
+	// for the session, so on resumed sessions we must subtract the previous
+	// value to avoid double-counting.
+	prevTotalCostUSD := task.Usage.LastReportedCost
+
 	// Prepare board context (board.json manifest of all tasks).
 	boardDir, boardErr := r.prepareBoardContext(taskID, task.MountWorktrees)
 	if boardErr != nil {
@@ -165,12 +171,22 @@ func (r *Runner) Run(taskID uuid.UUID, prompt, sessionID string, resumedFromWait
 			sessionID = output.SessionID
 		}
 		r.store.UpdateTaskResult(bgCtx, taskID, output.Result, sessionID, output.StopReason, turns)
+		// Compute cost delta: total_cost_usd is cumulative for the session,
+		// so subtract what was reported in the previous turn to get the
+		// per-turn cost. If the value drops (e.g. new session), use as-is.
+		costDelta := output.TotalCostUSD - prevTotalCostUSD
+		if costDelta < 0 {
+			costDelta = output.TotalCostUSD
+		}
+		prevTotalCostUSD = output.TotalCostUSD
+
 		r.store.AccumulateTaskUsage(bgCtx, taskID, store.TaskUsage{
 			InputTokens:          output.Usage.InputTokens,
 			OutputTokens:         output.Usage.OutputTokens,
 			CacheReadInputTokens: output.Usage.CacheReadInputTokens,
 			CacheCreationTokens:  output.Usage.CacheCreationInputTokens,
-			CostUSD:              output.TotalCostUSD,
+			CostUSD:              costDelta,
+			LastReportedCost:     output.TotalCostUSD,
 		})
 
 		if output.IsError {
